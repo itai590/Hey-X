@@ -235,6 +235,7 @@ describe('Training WAV review (HTTP)', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type'] || '').toMatch(/html/);
     expect(res.text).toContain('WAV review');
+    expect(res.text).toContain('train-custom-head');
     expect(res.text).not.toContain('__DISPLAY_TIME_ZONE_HTML__');
     expect(res.text).not.toContain('__DISPLAY_TIME_ZONE_JSON__');
   });

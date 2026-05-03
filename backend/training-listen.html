@@ -176,6 +176,14 @@
       border-color: rgba(255, 138, 128, 0.65);
       background: linear-gradient(180deg, #4a3030 0%, #3a2a2a 100%);
     }
+    button.btn-accent {
+      border-color: rgba(220, 198, 168, 0.55);
+      color: var(--accent);
+    }
+    button.btn-accent:hover {
+      border-color: var(--accent);
+      background: linear-gradient(180deg, #3d3834 0%, #2f2d2a 100%);
+    }
     textarea#ids-paste {
       width: 100%;
       max-width: 48rem;
@@ -228,6 +236,7 @@
     <strong>Timestamps</strong> below use <code>__DISPLAY_TIME_ZONE_HTML__</code> (server <code>DISPLAY_TIME_ZONE</code> or <code>TZ</code>).
     Press <strong>play</strong> on a row to load that clip (loads one at a time; avoids network errors on small devices).
     Use <strong>Refresh</strong> to re-fetch training inbox, mic temp, and custom clip lists without reloading the page.
+    <strong>Train custom head</strong> runs <code>POST /api/custom-head/train</code> on the server (rebuilds the head from <code>custom_clips</code>; can take a while).
     <strong>Clear training inbox</strong> deletes every WAV and JSON under <code>data/training_inbox</code> (not custom clips); you will be asked to confirm.
   </p>
   <div class="token-row">
@@ -235,6 +244,7 @@
     <input id="token" type="password" autocomplete="off" placeholder="Bearer token (when HEY_ADMIN_TOKEN is set)" />
     <button type="button" id="load">Load all clips</button>
     <button type="button" id="refresh-catalog">Refresh</button>
+    <button type="button" id="train-custom-head" class="btn-accent" title="POST /api/custom-head/train — retrains from custom_clips">Train custom head</button>
     <button type="button" id="clear-inbox" class="btn-danger" title="Deletes all files in data/training_inbox">Clear training inbox</button>
   </div>
 
@@ -402,7 +412,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
             .then(function (x) {
               if (x.ok && x.j && x.j.ok) {
                 st.className = 'promote-status ok';
-                st.textContent = 'Saved to custom_clips/' + label + ' — run POST /api/custom-head/train when ready.';
+                st.textContent = 'Saved to custom_clips/' + label + ' — click Train custom head when ready.';
                 btnWrap.querySelectorAll('button').forEach(function (b) {
                   b.disabled = true;
                 });
@@ -497,9 +507,11 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     function setCatalogButtonsBusy(busy) {
       var loadBtn = document.getElementById('load');
       var refreshBtn = document.getElementById('refresh-catalog');
+      var trainBtn = document.getElementById('train-custom-head');
       var clearBtn = document.getElementById('clear-inbox');
       if (loadBtn) loadBtn.disabled = !!busy;
       if (refreshBtn) refreshBtn.disabled = !!busy;
+      if (trainBtn) trainBtn.disabled = !!busy;
       if (clearBtn) clearBtn.disabled = !!busy;
     }
 
@@ -597,6 +609,92 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
 
     document.getElementById('load').onclick = loadAudioCatalog;
     document.getElementById('refresh-catalog').onclick = loadAudioCatalog;
+
+    document.getElementById('train-custom-head').onclick = function () {
+      var status = document.getElementById('status');
+      if (
+        !window.confirm(
+          'Run custom head training on the server now? This uses clips under custom_clips and may take a minute or more.',
+        )
+      ) {
+        return;
+      }
+      setCatalogButtonsBusy(true);
+      status.textContent = 'Training custom head… (wait for the server to finish)';
+      fetch('/api/custom-head/train', {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+        body: '{}',
+        cache: 'no-store',
+      })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            return { ok: r.ok, status: r.status, j: j };
+          });
+        })
+        .then(function (x) {
+          if (x.status === 401) {
+            status.innerHTML = '<span class="err">Unauthorized — paste HEY_ADMIN_TOKEN above.</span>';
+            return;
+          }
+          if (x.ok && x.j && x.j.ok) {
+            var sm = x.j.summary;
+            var parts = [];
+            if (sm && typeof sm === 'object' && sm.raw == null) {
+              if (sm.train_accuracy != null) {
+                var ta = Number(sm.train_accuracy);
+                parts.push(
+                  'train_accuracy=' + (Number.isFinite(ta) ? ta.toFixed(4) : String(sm.train_accuracy)),
+                );
+              }
+              if (sm.samples && typeof sm.samples === 'object') {
+                var s = sm.samples;
+                parts.push(
+                  'clips bark=' + (s.bark != null ? s.bark : '?') + ' not_bark=' + (s.not_bark != null ? s.not_bark : '?'),
+                );
+              }
+              if (sm.output) parts.push('output=' + String(sm.output).split(/[/\\]/).pop());
+            }
+            status.textContent = '';
+            var okLine = document.createElement('span');
+            okLine.className = 'ok';
+            okLine.textContent = 'Training finished.';
+            status.appendChild(okLine);
+            status.appendChild(
+              document.createTextNode(
+                ' ' + (parts.length ? parts.join(' · ') : sm && sm.raw != null ? String(sm.raw) : 'OK'),
+              ),
+            );
+            return;
+          }
+          var err = x.j && x.j.error ? x.j.error : 'HTTP ' + x.status;
+          var tail = x.j && x.j.stderr ? String(x.j.stderr).slice(-800) : '';
+          status.textContent = '';
+          var errSpan = document.createElement('span');
+          errSpan.className = 'err';
+          errSpan.textContent = err;
+          status.appendChild(errSpan);
+          if (tail) {
+            var pre = document.createElement('pre');
+            pre.style.whiteSpace = 'pre-wrap';
+            pre.style.fontSize = '0.78rem';
+            pre.style.margin = '0.5rem 0 0';
+            pre.style.opacity = '0.85';
+            pre.textContent = tail;
+            status.appendChild(pre);
+          }
+        })
+        .catch(function (e) {
+          status.textContent = '';
+          var errSpan = document.createElement('span');
+          errSpan.className = 'err';
+          errSpan.textContent = String(e.message || e);
+          status.appendChild(errSpan);
+        })
+        .finally(function () {
+          setCatalogButtonsBusy(false);
+        });
+    };
 
     document.getElementById('clear-inbox').onclick = function () {
       var status = document.getElementById('status');
