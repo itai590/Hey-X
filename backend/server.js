@@ -960,6 +960,16 @@ app.get('/api/training/inbox', requireAdmin, (_req, res) => {
   }
 });
 
+app.delete('/api/training/inbox', requireAdmin, (_req, res) => {
+  try {
+    const { removedFiles } = trainingInbox.clearEntireInbox(__dirname);
+    res.json({ ok: true, removedFiles });
+  } catch (err) {
+    console.error('training inbox clear:', err);
+    res.status(500).json({ error: 'Failed to clear training inbox' });
+  }
+});
+
 /** JSON: RMS from PCM + capturedAt (inbox JSON or custom_clips sidecar). Used by training-listen pasted IDs. */
 app.get('/api/training/inbox/:clipId/wav-meta', requireAdmin, (req, res) => {
   const { clipId } = req.params;

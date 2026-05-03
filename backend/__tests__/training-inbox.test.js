@@ -79,4 +79,12 @@ describe('training-inbox promote + resolve', () => {
     expect(p).toContain('not_bark');
     expect(p).toContain(`from-inbox-${clipId}.wav`);
   });
+
+  test('clearEntireInbox removes wav/json and leaves dir empty of clips', () => {
+    const out = trainingInbox.clearEntireInbox(root);
+    expect(out.removedFiles).toBeGreaterThanOrEqual(2);
+    expect(trainingInbox.listInbox(root).length).toBe(0);
+    const again = trainingInbox.clearEntireInbox(root);
+    expect(again.removedFiles).toBe(0);
+  });
 });

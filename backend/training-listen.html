@@ -168,6 +168,22 @@
       cursor: not-allowed;
       transform: none;
     }
+    button.btn-danger {
+      border-color: rgba(255, 138, 128, 0.45);
+      color: #ffcdd2;
+    }
+    button.btn-danger:hover {
+      border-color: rgba(255, 138, 128, 0.65);
+      background: linear-gradient(180deg, #4a3030 0%, #3a2a2a 100%);
+    }
+    button.btn-accent {
+      border-color: rgba(220, 198, 168, 0.55);
+      color: var(--accent);
+    }
+    button.btn-accent:hover {
+      border-color: var(--accent);
+      background: linear-gradient(180deg, #3d3834 0%, #2f2d2a 100%);
+    }
     textarea#ids-paste {
       width: 100%;
       max-width: 48rem;
@@ -215,24 +231,25 @@
 <body>
   <h1 id="training-listen-title">Hey — WAV review</h1>
   <p class="hint">
-    Open this page on the same host as the backend (e.g. <code>http://&lt;pi&gt;:5100/api/training/listen</code> or via your HTTPS reverse proxy).
-    If <code>HEY_ADMIN_TOKEN</code> is set, paste the same value below so fetches can load protected audio.
-    <strong>Timestamps</strong> below use <code>__DISPLAY_TIME_ZONE_HTML__</code> (server <code>DISPLAY_TIME_ZONE</code> or <code>TZ</code>).
-    Press <strong>play</strong> on a row to load that clip (loads one at a time; avoids network errors on small devices).
+    <strong>Timestamps</strong> below use <code>__DISPLAY_TIME_ZONE_HTML__</code>.
+    Press <strong>play</strong> on a row to load that clip (loads one at a time).
     Use <strong>Refresh</strong> to re-fetch training inbox, mic temp, and custom clip lists without reloading the page.
+    <strong>Train</strong> runs <code>POST /api/custom-head/train</code> on the server (rebuilds the head from <code>custom_clips</code>; can take a while).
+    <strong>Clear training inbox</strong> deletes every WAV and JSON under <code>data/training_inbox</code> (not custom clips); you will be asked to confirm.
   </p>
   <div class="token-row">
     <label for="token">Admin token</label>
-    <input id="token" type="password" autocomplete="off" placeholder="Bearer token (when HEY_ADMIN_TOKEN is set)" />
+    <input id="token" type="password" autocomplete="off" placeholder="Bearer HEY_ADMIN_TOKEN" />
     <button type="button" id="load">Load all clips</button>
     <button type="button" id="refresh-catalog">Refresh</button>
+    <button type="button" id="train-custom-head" class="btn-accent" title="POST /api/custom-head/train — retrains from custom_clips">Train</button>
+    <button type="button" id="clear-inbox" class="btn-danger" title="Deletes all files in data/training_inbox">Clear training inbox</button>
   </div>
 
   <section>
-    <h2>Hear clips by ID (from logs: <code>clip_id=…</code>)</h2>
+    <h2>Hear clips by ID</h2>
     <p class="hint">
       Paste one UUID per line (or comma-separated). Audio is served from the inbox path <code>/api/training/inbox/&lt;id&gt;/audio</code>, which also resolves clips promoted into <code>custom_clips</code> (same URL after promotion).
-      After listening, promote into custom training sets or skip.
     </p>
     <textarea id="ids-paste" placeholder="78b47e64-913b-4328-89bf-be0b5dd48df5
 c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
@@ -392,7 +409,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
             .then(function (x) {
               if (x.ok && x.j && x.j.ok) {
                 st.className = 'promote-status ok';
-                st.textContent = 'Saved to custom_clips/' + label + ' — run POST /api/custom-head/train when ready.';
+                st.textContent = 'Saved to custom_clips/' + label + ' — click Train custom head when ready.';
                 btnWrap.querySelectorAll('button').forEach(function (b) {
                   b.disabled = true;
                 });
@@ -487,8 +504,12 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     function setCatalogButtonsBusy(busy) {
       var loadBtn = document.getElementById('load');
       var refreshBtn = document.getElementById('refresh-catalog');
+      var trainBtn = document.getElementById('train-custom-head');
+      var clearBtn = document.getElementById('clear-inbox');
       if (loadBtn) loadBtn.disabled = !!busy;
       if (refreshBtn) refreshBtn.disabled = !!busy;
+      if (trainBtn) trainBtn.disabled = !!busy;
+      if (clearBtn) clearBtn.disabled = !!busy;
     }
 
     function loadAudioCatalog() {
@@ -585,6 +606,141 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
 
     document.getElementById('load').onclick = loadAudioCatalog;
     document.getElementById('refresh-catalog').onclick = loadAudioCatalog;
+
+    document.getElementById('train-custom-head').onclick = function () {
+      var status = document.getElementById('status');
+      if (
+        !window.confirm(
+          'Run custom head training on the server now? This uses clips under custom_clips and may take a minute or more.',
+        )
+      ) {
+        return;
+      }
+      setCatalogButtonsBusy(true);
+      status.textContent = 'Training custom head… (wait for the server to finish)';
+      fetch('/api/custom-head/train', {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+        body: '{}',
+        cache: 'no-store',
+      })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            return { ok: r.ok, status: r.status, j: j };
+          });
+        })
+        .then(function (x) {
+          if (x.status === 401) {
+            status.innerHTML = '<span class="err">Unauthorized — paste HEY_ADMIN_TOKEN above.</span>';
+            return;
+          }
+          if (x.ok && x.j && x.j.ok) {
+            var sm = x.j.summary;
+            var detail = '';
+            if (sm && typeof sm === 'object' && sm.raw == null) {
+              var bits = [];
+              if (sm.samples && typeof sm.samples === 'object') {
+                var s = sm.samples;
+                var nb = s.bark != null ? s.bark : '?';
+                var nn = s.not_bark != null ? s.not_bark : '?';
+                bits.push(nb + ' bark and ' + nn + ' not_bark WAVs in custom_clips');
+                if (s.usable != null && s.bark != null && s.not_bark != null) {
+                  if (Number(s.bark) + Number(s.not_bark) !== Number(s.usable)) {
+                    bits.push(String(s.usable) + ' clips used after filtering');
+                  }
+                }
+              }
+              if (sm.train_accuracy != null) {
+                var ta = Number(sm.train_accuracy);
+                var accStr = Number.isFinite(ta)
+                  ? (ta * 100).toFixed(1).replace(/\.0$/, '') + '% on the training set'
+                  : String(sm.train_accuracy);
+                bits.push('accuracy ' + accStr);
+              }
+              if (sm.output) {
+                bits.push('saved as ' + String(sm.output).split(/[/\\]/).pop());
+              }
+              detail = bits.length ? ' ' + bits.join(' — ') + '.' : ' OK.';
+            } else if (sm && sm.raw != null) {
+              detail = ' ' + String(sm.raw);
+            } else {
+              detail = ' OK.';
+            }
+            status.textContent = '';
+            var okLine = document.createElement('span');
+            okLine.className = 'ok';
+            okLine.textContent = 'Training finished.';
+            status.appendChild(okLine);
+            status.appendChild(document.createTextNode(detail));
+            return;
+          }
+          var err = x.j && x.j.error ? x.j.error : 'HTTP ' + x.status;
+          var tail = x.j && x.j.stderr ? String(x.j.stderr).slice(-800) : '';
+          status.textContent = '';
+          var errSpan = document.createElement('span');
+          errSpan.className = 'err';
+          errSpan.textContent = err;
+          status.appendChild(errSpan);
+          if (tail) {
+            var pre = document.createElement('pre');
+            pre.style.whiteSpace = 'pre-wrap';
+            pre.style.fontSize = '0.78rem';
+            pre.style.margin = '0.5rem 0 0';
+            pre.style.opacity = '0.85';
+            pre.textContent = tail;
+            status.appendChild(pre);
+          }
+        })
+        .catch(function (e) {
+          status.textContent = '';
+          var errSpan = document.createElement('span');
+          errSpan.className = 'err';
+          errSpan.textContent = String(e.message || e);
+          status.appendChild(errSpan);
+        })
+        .finally(function () {
+          setCatalogButtonsBusy(false);
+        });
+    };
+
+    document.getElementById('clear-inbox').onclick = function () {
+      var status = document.getElementById('status');
+      if (
+        !window.confirm(
+          'Delete every file in the training inbox (data/training_inbox)? This cannot be undone. Custom clips are not affected.',
+        )
+      ) {
+        return;
+      }
+      setCatalogButtonsBusy(true);
+      status.textContent = 'Clearing training inbox…';
+      fetch('/api/training/inbox', { method: 'DELETE', headers: authHeaders(), cache: 'no-store' })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            return { ok: r.ok, status: r.status, j: j };
+          });
+        })
+        .then(function (x) {
+          if (x.status === 401) {
+            status.innerHTML = '<span class="err">Unauthorized — paste HEY_ADMIN_TOKEN above.</span>';
+            setCatalogButtonsBusy(false);
+            return;
+          }
+          if (!x.ok || !x.j || !x.j.ok) {
+            status.innerHTML =
+              '<span class="err">' + ((x.j && x.j.error) ? x.j.error : 'HTTP ' + x.status) + '</span>';
+            setCatalogButtonsBusy(false);
+            return;
+          }
+          status.textContent =
+            'Training inbox cleared (' + (x.j.removedFiles != null ? x.j.removedFiles : 0) + ' file(s) removed).';
+          loadAudioCatalog();
+        })
+        .catch(function (e) {
+          status.innerHTML = '<span class="err">' + String(e.message || e) + '</span>';
+          setCatalogButtonsBusy(false);
+        });
+    };
   </script>
 </body>
 </html>
