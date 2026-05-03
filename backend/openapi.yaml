@@ -291,6 +291,28 @@ paths:
           description: Inbox list
         "401":
           description: Unauthorized
+    delete:
+      tags: [ Training ]
+      summary: Remove all WAV and JSON files from the training inbox directory
+      description: Does not delete clips already under custom_clips.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  removedFiles:
+                    type: integer
+        "401":
+          description: Unauthorized
+        "500":
+          description: Server error
 
   /api/training/inbox/{clipId}/audio:
     get:

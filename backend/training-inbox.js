@@ -121,6 +121,31 @@ function deleteFromInbox(backendRoot, clipId) {
   return removed;
 }
 
+/** Remove every `.wav` / `.json` file in `data/training_inbox` (not custom_clips). */
+function clearEntireInbox(backendRoot) {
+  const inboxDir = getInboxDir(backendRoot);
+  if (!fs.existsSync(inboxDir)) return { removedFiles: 0 };
+  let removedFiles = 0;
+  let names;
+  try {
+    names = fs.readdirSync(inboxDir);
+  } catch (_) {
+    return { removedFiles: 0 };
+  }
+  for (const name of names) {
+    const lower = name.toLowerCase();
+    if (!lower.endsWith('.wav') && !lower.endsWith('.json')) continue;
+    const full = path.join(inboxDir, name);
+    try {
+      if (fs.statSync(full).isFile()) {
+        fs.unlinkSync(full);
+        removedFiles += 1;
+      }
+    } catch (_) { /* ignore */ }
+  }
+  return { removedFiles };
+}
+
 /**
  * Copy wav into custom_clips/{label}/ and remove inbox files.
  * Writes a sidecar JSON next to the WAV so /api/training/audio-catalog can show original
@@ -196,6 +221,7 @@ module.exports = {
   captureClip,
   listInbox,
   deleteFromInbox,
+  clearEntireInbox,
   promoteToTraining,
   readMeta,
   clipPaths,

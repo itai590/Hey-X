@@ -168,6 +168,14 @@
       cursor: not-allowed;
       transform: none;
     }
+    button.btn-danger {
+      border-color: rgba(255, 138, 128, 0.45);
+      color: #ffcdd2;
+    }
+    button.btn-danger:hover {
+      border-color: rgba(255, 138, 128, 0.65);
+      background: linear-gradient(180deg, #4a3030 0%, #3a2a2a 100%);
+    }
     textarea#ids-paste {
       width: 100%;
       max-width: 48rem;
@@ -220,12 +228,14 @@
     <strong>Timestamps</strong> below use <code>__DISPLAY_TIME_ZONE_HTML__</code> (server <code>DISPLAY_TIME_ZONE</code> or <code>TZ</code>).
     Press <strong>play</strong> on a row to load that clip (loads one at a time; avoids network errors on small devices).
     Use <strong>Refresh</strong> to re-fetch training inbox, mic temp, and custom clip lists without reloading the page.
+    <strong>Clear training inbox</strong> deletes every WAV and JSON under <code>data/training_inbox</code> (not custom clips); you will be asked to confirm.
   </p>
   <div class="token-row">
     <label for="token">Admin token</label>
     <input id="token" type="password" autocomplete="off" placeholder="Bearer token (when HEY_ADMIN_TOKEN is set)" />
     <button type="button" id="load">Load all clips</button>
     <button type="button" id="refresh-catalog">Refresh</button>
+    <button type="button" id="clear-inbox" class="btn-danger" title="Deletes all files in data/training_inbox">Clear training inbox</button>
   </div>
 
   <section>
@@ -487,8 +497,10 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     function setCatalogButtonsBusy(busy) {
       var loadBtn = document.getElementById('load');
       var refreshBtn = document.getElementById('refresh-catalog');
+      var clearBtn = document.getElementById('clear-inbox');
       if (loadBtn) loadBtn.disabled = !!busy;
       if (refreshBtn) refreshBtn.disabled = !!busy;
+      if (clearBtn) clearBtn.disabled = !!busy;
     }
 
     function loadAudioCatalog() {
@@ -585,6 +597,45 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
 
     document.getElementById('load').onclick = loadAudioCatalog;
     document.getElementById('refresh-catalog').onclick = loadAudioCatalog;
+
+    document.getElementById('clear-inbox').onclick = function () {
+      var status = document.getElementById('status');
+      if (
+        !window.confirm(
+          'Delete every file in the training inbox (data/training_inbox)? This cannot be undone. Custom clips are not affected.',
+        )
+      ) {
+        return;
+      }
+      setCatalogButtonsBusy(true);
+      status.textContent = 'Clearing training inbox…';
+      fetch('/api/training/inbox', { method: 'DELETE', headers: authHeaders(), cache: 'no-store' })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            return { ok: r.ok, status: r.status, j: j };
+          });
+        })
+        .then(function (x) {
+          if (x.status === 401) {
+            status.innerHTML = '<span class="err">Unauthorized — paste HEY_ADMIN_TOKEN above.</span>';
+            setCatalogButtonsBusy(false);
+            return;
+          }
+          if (!x.ok || !x.j || !x.j.ok) {
+            status.innerHTML =
+              '<span class="err">' + ((x.j && x.j.error) ? x.j.error : 'HTTP ' + x.status) + '</span>';
+            setCatalogButtonsBusy(false);
+            return;
+          }
+          status.textContent =
+            'Training inbox cleared (' + (x.j.removedFiles != null ? x.j.removedFiles : 0) + ' file(s) removed).';
+          loadAudioCatalog();
+        })
+        .catch(function (e) {
+          status.innerHTML = '<span class="err">' + String(e.message || e) + '</span>';
+          setCatalogButtonsBusy(false);
+        });
+    };
   </script>
 </body>
 </html>
