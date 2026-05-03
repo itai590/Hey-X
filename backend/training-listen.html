@@ -232,25 +232,24 @@
   <h1 id="training-listen-title">Hey — WAV review</h1>
   <p class="hint">
     <strong>Timestamps</strong> below use <code>__DISPLAY_TIME_ZONE_HTML__</code>.
-    Press <strong>play</strong> on a row to load that clip (loads one at a time; avoids network errors on small devices).
+    Press <strong>play</strong> on a row to load that clip (loads one at a time).
     Use <strong>Refresh</strong> to re-fetch training inbox, mic temp, and custom clip lists without reloading the page.
-    <strong>Train custom head</strong> runs <code>POST /api/custom-head/train</code> on the server (rebuilds the head from <code>custom_clips</code>; can take a while).
+    <strong>Train</strong> runs <code>POST /api/custom-head/train</code> on the server (rebuilds the head from <code>custom_clips</code>; can take a while).
     <strong>Clear training inbox</strong> deletes every WAV and JSON under <code>data/training_inbox</code> (not custom clips); you will be asked to confirm.
   </p>
   <div class="token-row">
     <label for="token">Admin token</label>
-    <input id="token" type="password" autocomplete="off" placeholder="Bearer token (when HEY_ADMIN_TOKEN is set)" />
+    <input id="token" type="password" autocomplete="off" placeholder="Bearer HEY_ADMIN_TOKEN" />
     <button type="button" id="load">Load all clips</button>
     <button type="button" id="refresh-catalog">Refresh</button>
-    <button type="button" id="train-custom-head" class="btn-accent" title="POST /api/custom-head/train — retrains from custom_clips">Train custom head</button>
+    <button type="button" id="train-custom-head" class="btn-accent" title="POST /api/custom-head/train — retrains from custom_clips">Train</button>
     <button type="button" id="clear-inbox" class="btn-danger" title="Deletes all files in data/training_inbox">Clear training inbox</button>
   </div>
 
   <section>
-    <h2>Hear clips by ID (from logs: <code>clip_id=…</code>)</h2>
+    <h2>Hear clips by ID</h2>
     <p class="hint">
       Paste one UUID per line (or comma-separated). Audio is served from the inbox path <code>/api/training/inbox/&lt;id&gt;/audio</code>, which also resolves clips promoted into <code>custom_clips</code> (same URL after promotion).
-      After listening, promote into custom training sets or skip.
     </p>
     <textarea id="ids-paste" placeholder="78b47e64-913b-4328-89bf-be0b5dd48df5
 c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
