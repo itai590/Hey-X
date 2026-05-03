@@ -1,0 +1,386 @@
+openapi: 3.0.3
+info:
+  # Overwritten at startup by server.js (`siteApiTitle()`); static default matches empty DOG_NAME.
+  title: Hey API
+  description: |
+    Backend for bark detection, SQLite messages, and WAV training workflows.
+
+    **Admin routes** use `Authorization: Bearer <HEY_ADMIN_TOKEN>` when that env var is set.
+    When unset, mutating routes may still be open — prefer setting the token in production.
+  version: 1.0.0
+
+servers:
+  - url: /
+    description: Backend origin (default port 5100)
+
+tags:
+  - name: Auth
+  - name: Messages
+  - name: Config
+  - name: CustomHead
+  - name: Training
+  - name: Presence
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: HEY_ADMIN_TOKEN
+
+paths:
+  /api/auth/verify-admin:
+    post:
+      tags: [ Auth ]
+      summary: Verify admin password or Bearer token
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  description: Same value as HEY_ADMIN_TOKEN (alternative to Bearer header)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  authDisabled:
+                    type: boolean
+                    description: Present when HEY_ADMIN_TOKEN is unset
+        "401":
+          description: Invalid credentials
+
+  /api/messages:
+    get:
+      tags: [ Messages ]
+      summary: List timeline messages
+      responses:
+        "200":
+          description: Messages newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+    delete:
+      tags: [ Messages ]
+      summary: Delete messages by ids
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ ids ]
+              properties:
+                ids:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: Deleted count
+        "400":
+          description: Validation error
+        "401":
+          description: Unauthorized
+
+  /api/messages/{id}:
+    put:
+      tags: [ Messages ]
+      summary: Create or update a message
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: { type: string }
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+
+  /api/config:
+    get:
+      tags: [ Config ]
+      summary: Get merged runtime configuration
+      responses:
+        "200":
+          description: Config object
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    put:
+      tags: [ Config ]
+      summary: Update allowed config keys
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              description: Only known keys accepted (e.g. DOG_NAME, MIC_MUTED,
+                DETECTION_THRESHOLD)
+      responses:
+        "200":
+          description: Updated config
+        "400":
+          description: Unknown or invalid keys
+        "401":
+          description: Unauthorized
+
+  /api/custom-head/status:
+    get:
+      tags: [ CustomHead ]
+      summary: Custom head + clip counts
+      responses:
+        "200":
+          description: Status object
+
+  /api/custom-head/train:
+    post:
+      tags: [ CustomHead ]
+      summary: Run Python train_custom_head.py
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Training finished
+        "401":
+          description: Unauthorized
+        "500":
+          description: Training failed
+
+  /api/custom-head/clip/{label}:
+    put:
+      tags: [ CustomHead ]
+      summary: Upload a WAV clip into custom_clips/{label}
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: label
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [ bark, not_bark ]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Saved
+        "401":
+          description: Unauthorized
+        "413":
+          description: Body too large
+
+  /api/training/listen:
+    get:
+      tags: [ Training ]
+      summary: HTML page to review WAVs (browser UI)
+      responses:
+        "200":
+          description: HTML
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/training/audio-catalog:
+    get:
+      tags: [ Training ]
+      summary: JSON listing of inbox, mic_temp, and custom clip WAVs
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Catalog
+        "401":
+          description: Unauthorized
+
+  /api/training/mic-temp/{filename}/audio:
+    get:
+      tags: [ Training ]
+      summary: Stream a mic temp WAV (e.g. clip-1777557607959.wav)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
+            example: clip-1777557607959.wav
+      responses:
+        "200":
+          description: audio/wav
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Unauthorized
+        "404":
+          description: Not found
+
+  /api/training/custom-clips/{label}/{filename}/audio:
+    get:
+      tags: [ Training ]
+      summary: Stream a WAV from data/custom_clips/{label}
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: label
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [ bark, not_bark ]
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: audio/wav
+        "401":
+          description: Unauthorized
+        "404":
+          description: Not found
+
+  /api/training/inbox:
+    get:
+      tags: [ Training ]
+      summary: List training inbox clips with metadata
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Inbox list
+        "401":
+          description: Unauthorized
+
+  /api/training/inbox/{clipId}/audio:
+    get:
+      tags: [ Training ]
+      summary: Stream training inbox WAV by UUID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: clipId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: audio/wav
+        "400":
+          description: Invalid clip id
+        "401":
+          description: Unauthorized
+        "404":
+          description: Not found
+
+  /api/training/inbox/{clipId}/promote:
+    post:
+      tags: [ Training ]
+      summary: Move clip from inbox to custom_clips for labeling
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: clipId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ label ]
+              properties:
+                label:
+                  type: string
+                  enum: [ bark, not_bark ]
+      responses:
+        "200":
+          description: Promoted
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+        "404":
+          description: Clip not found
+
+  /api/training/inbox/{clipId}:
+    delete:
+      tags: [ Training ]
+      summary: Remove clip from training inbox
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: clipId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Deleted
+        "400":
+          description: Invalid clip id
+        "401":
+          description: Unauthorized
+        "404":
+          description: Not found
+
+  /api/presence:
+    get:
+      tags: [ Presence ]
+      summary: Heartbeat, last sound, RMS floor, last classification snapshot
+      responses:
+        "200":
+          description: Presence payload
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true

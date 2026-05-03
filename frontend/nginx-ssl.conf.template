@@ -1,0 +1,67 @@
+# ── HTTP: primary hostnames + loopback (Docker /health checks) ─────
+server {
+    listen 80;
+    server_name @SSL_SERVER_NAMES@;
+
+    include /etc/nginx/snippets/health-location.conf;
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ── HTTP: unknown Host → drop (prevents https://$host redirects to attacker-controlled hosts)
+server {
+    listen 80 default_server;
+    server_name _;
+    return 444;
+}
+
+# ── Primary TLS server ───────────────────────────────────────────
+server {
+    listen 443 ssl;
+    server_name @PRIMARY_DOMAIN@ www.@PRIMARY_DOMAIN@;
+
+    ssl_certificate /etc/letsencrypt/live/@PRIMARY_DOMAIN@/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/@PRIMARY_DOMAIN@/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/@PRIMARY_DOMAIN@/chain.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    # Mozilla “intermediate” profile (TLS 1.2+) — tighter than legacy HIGH:!MD5
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    resolver 127.0.0.11 ipv6=off valid=300s;
+    resolver_timeout 5s;
+
+    include /etc/nginx/snippets/health-location.conf;
+
+    include /etc/nginx/snippets/security-headers.conf;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    gzip on;
+    gzip_types
+        text/plain
+        text/css
+        text/javascript
+        application/javascript
+        application/json
+        application/xml
+        font/woff
+        font/woff2;
+    gzip_min_length 256;
+    gzip_comp_level 6;
+    gzip_vary on;
+    gzip_proxied any;
+
+    include /etc/nginx/snippets/app-dynamic.conf;
+}
+
+# ── TLS: wrong SNI / unknown host — refuse handshake (no fallthrough cert) ──
+server {
+    listen 443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+}

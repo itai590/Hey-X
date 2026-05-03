@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hey — WAV review</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      /* Match Hey Bark History: near-black canvas, elevated grey cards, cream type */
+      --bg: #1a1a1a;
+      --bg-elev: #242426;
+      --bg-card: #2c2c2e;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.14);
+      --text: #f5ebe0;
+      --text-muted: rgba(245, 235, 224, 0.72);
+      --accent: #dcc6a8;
+      --accent-dim: rgba(220, 198, 168, 0.32);
+      --code-bg: rgba(44, 44, 46, 0.98);
+      --field-fill: #1c1c1e;
+    }
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 1.25rem clamp(1rem, 4vw, 2rem) 2rem;
+      max-width: 52rem;
+      line-height: 1.5;
+      background: radial-gradient(ellipse 130% 90% at 50% -10%, #252528 0%, var(--bg) 55%, #121212 100%);
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--text);
+      text-shadow: 0 1px 10px rgba(0, 0, 0, 0.22);
+      margin-top: 0;
+    }
+    h2 { font-size: 1.05rem; margin: 0 0 0.75rem; font-weight: 600; color: var(--text); }
+    code {
+      font-family: ui-monospace, monospace;
+      font-size: 0.88em;
+      background: var(--code-bg);
+      padding: 0.12em 0.35em;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      color: #f0e6dc;
+    }
+    section { margin: 1.25rem 0; padding-top: 1rem; border-top: 1px solid var(--border); }
+    details.catalog-section {
+      margin: 1.25rem 0;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+    details.catalog-section > summary.section-summary {
+      font-size: 1.05rem;
+      font-weight: 600;
+      cursor: pointer;
+      list-style: none;
+      margin: 0 0 0.75rem;
+      user-select: none;
+      color: var(--text);
+    }
+    details.catalog-section > summary.section-summary::-webkit-details-marker { display: none; }
+    details.catalog-section > summary.section-summary::before {
+      content: '▾ ';
+      display: inline-block;
+      width: 1.1em;
+      color: var(--accent);
+      transition: transform 0.15s ease;
+      transform: rotate(0deg);
+    }
+    details.catalog-section:not([open]) > summary.section-summary::before {
+      transform: rotate(-90deg);
+    }
+    details.catalog-section .section-body { padding-left: 0.15rem; }
+    .token-row { margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+    .token-row label { font-weight: 600; color: var(--text); }
+    #token {
+      flex: 1;
+      min-width: 12rem;
+      max-width: 28rem;
+      padding: 0.45rem 0.65rem;
+      border-radius: 8px;
+      border: 1px solid var(--border-strong);
+      background: var(--field-fill);
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    #token::placeholder { color: var(--text-muted); }
+    #token:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+    .clip {
+      position: relative;
+      margin: 0.65rem 0;
+      padding: 0.75rem 0.9rem;
+      background: var(--bg-card);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+    .clip:has(> .clip-num) {
+      padding-left: 2.65rem;
+    }
+    .clip-num {
+      position: absolute;
+      left: 0.65rem;
+      top: 0.72rem;
+      min-width: 1.65rem;
+      height: 1.65rem;
+      padding: 0 0.35rem;
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.82rem;
+      line-height: 1;
+      color: var(--accent);
+      background: var(--bg-elev);
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      user-select: none;
+    }
+    .meta-lines {
+      display: block;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      margin-bottom: 0.4rem;
+      word-break: break-all;
+    }
+    .clip strong { color: #f5ebe0; font-weight: 700; }
+    audio {
+      width: 100%;
+      max-width: 36rem;
+      vertical-align: middle;
+      border-radius: 6px;
+      margin-top: 0.25rem;
+    }
+    .err { color: #ff8a80; }
+    .hint { font-size: 0.9rem; color: var(--text-muted); }
+    .hint strong { color: rgba(255, 248, 240, 0.92); }
+    button {
+      padding: 0.45rem 0.85rem;
+      cursor: pointer;
+      border-radius: 10px;
+      border: 1px solid var(--border-strong);
+      background: linear-gradient(180deg, #3a3a3c 0%, #2c2c2e 100%);
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+    }
+    button:hover {
+      background: linear-gradient(180deg, #48484a 0%, #3a3a3c 100%);
+      border-color: rgba(245, 235, 224, 0.22);
+    }
+    button:active { transform: scale(0.98); }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+    textarea#ids-paste {
+      width: 100%;
+      max-width: 48rem;
+      min-height: 6rem;
+      font-family: ui-monospace, monospace;
+      font-size: 0.85rem;
+      padding: 0.55rem 0.65rem;
+      box-sizing: border-box;
+      border-radius: 10px;
+      border: 1px solid var(--border-strong);
+      background: var(--field-fill);
+      color: var(--text);
+      line-height: 1.45;
+    }
+    textarea#ids-paste::placeholder { color: var(--text-muted); opacity: 0.85; }
+    textarea#ids-paste:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+    .promote-row {
+      margin-top: 0.55rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      align-items: stretch;
+    }
+    .promote-btns {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 0.5rem;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .promote-btns button {
+      flex: 1 1 0;
+      min-width: 0;
+      font-size: clamp(0.72rem, 3.2vw, 0.88rem);
+      padding: 0.42rem 0.35rem;
+    }
+    .ok { color: #a5d6a7; font-size: 0.9rem; }
+    #status, #ids-status { color: var(--text-muted); font-size: 0.92rem; }
+  </style>
+</head>
+<body>
+  <h1 id="training-listen-title">Hey — WAV review</h1>
+  <p class="hint">
+    Open this page on the same host as the backend (e.g. <code>http://&lt;pi&gt;:5100/api/training/listen</code> or via your HTTPS reverse proxy).
+    If <code>HEY_ADMIN_TOKEN</code> is set, paste the same value below so fetches can load protected audio.
+    <strong>Timestamps</strong> below use <code>__DISPLAY_TIME_ZONE_HTML__</code> (server <code>DISPLAY_TIME_ZONE</code> or <code>TZ</code>).
+    Press <strong>play</strong> on a row to load that clip (loads one at a time; avoids network errors on small devices).
+    Use <strong>Refresh</strong> to re-fetch training inbox, mic temp, and custom clip lists without reloading the page.
+  </p>
+  <div class="token-row">
+    <label for="token">Admin token</label>
+    <input id="token" type="password" autocomplete="off" placeholder="Bearer token (when HEY_ADMIN_TOKEN is set)" />
+    <button type="button" id="load">Load all clips</button>
+    <button type="button" id="refresh-catalog">Refresh</button>
+  </div>
+
+  <section>
+    <h2>Hear clips by ID (from logs: <code>clip_id=…</code>)</h2>
+    <p class="hint">
+      Paste one UUID per line (or comma-separated). Audio is served from the inbox path <code>/api/training/inbox/&lt;id&gt;/audio</code>, which also resolves clips promoted into <code>custom_clips</code> (same URL after promotion).
+      After listening, promote into custom training sets or skip.
+    </p>
+    <textarea id="ids-paste" placeholder="78b47e64-913b-4328-89bf-be0b5dd48df5
+c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
+    <p><button type="button" id="hear-ids">Hear pasted clip IDs</button></p>
+    <div id="ids-status"></div>
+    <div id="ids-out"></div>
+  </section>
+
+  <div id="status"></div>
+  <div id="out"></div>
+
+  <script>
+    /** Display ISO times in the configured zone (DST per IANA). Stored values remain UTC in JSON. */
+    function formatTimeIL(iso) {
+      if (!iso || typeof iso !== 'string') return iso || '';
+      var ms = Date.parse(iso);
+      if (Number.isNaN(ms)) return iso;
+      var d = new Date(ms);
+      var parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: __DISPLAY_TIME_ZONE_JSON__,
+        day: 'numeric',
+        month: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).formatToParts(d);
+      function val(type) {
+        var p = parts.find(function (x) { return x.type === type; });
+        return p ? p.value : '';
+      }
+      return val('day') + '/' + val('month') + '/' + val('year') + ', ' +
+        val('hour') + ':' + val('minute') + ':' + val('second');
+    }
+
+    function authHeaders() {
+      var t = document.getElementById('token').value.trim();
+      var h = {};
+      if (t) h['Authorization'] = 'Bearer ' + t;
+      return h;
+    }
+
+    function wavBlobUrl(relUrl) {
+      return fetch(relUrl, { headers: authHeaders() }).then(function (r) {
+        if (!r.ok) throw new Error(relUrl + ' → HTTP ' + r.status);
+        return r.blob();
+      }).then(function (blob) {
+        if (blob.size === 0) {
+          throw new Error('Empty audio (0 bytes) — the file on disk has no PCM data; refreshing the page does not fix this.');
+        }
+        return URL.createObjectURL(blob);
+      });
+    }
+
+    /** Load WAV only on first play — avoids dozens of parallel fetches (NetworkError on Pi / browser limits). */
+    function bindLazyAudio(audioEl, audioUrl, wrap) {
+      var errShown = null;
+      function showErr(msg) {
+        if (errShown) {
+          errShown.textContent = msg;
+          return;
+        }
+        wrap.appendChild(document.createTextNode(' '));
+        errShown = document.createElement('span');
+        errShown.className = 'err';
+        errShown.textContent = msg;
+        wrap.appendChild(errShown);
+      }
+      audioEl.addEventListener(
+        'play',
+        function onFirstPlay(e) {
+          if (audioEl.dataset.audioReady === '1') return;
+          e.preventDefault();
+          audioEl.pause();
+          wavBlobUrl(audioUrl)
+            .then(function (url) {
+              audioEl.dataset.audioReady = '1';
+              audioEl.src = url;
+              audioEl.removeEventListener('play', onFirstPlay, true);
+              return audioEl.play();
+            })
+            .catch(function (err) {
+              showErr(String(err.message || err));
+            });
+        },
+        true,
+      );
+    }
+
+    var CLIP_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    function catalogRmsPart(row) {
+      if (!row || row.rms == null || typeof row.rms !== 'number' || Number.isNaN(row.rms)) return '';
+      return 'rms=' + row.rms.toFixed(4);
+    }
+
+    function parseClipIds(text) {
+      var raw = text.replace(/\r\n/g, '\n').split(/[\s,;]+/);
+      var seen = {};
+      var out = [];
+      raw.forEach(function (s) {
+        var id = s.trim();
+        if (!id) return;
+        if (!CLIP_ID_RE.test(id)) return;
+        var key = id.toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        out.push(id);
+      });
+      return out;
+    }
+
+    function appendClip(container, title, metaLines, audioUrl, clipIdForPromote, clipIndex) {
+      var wrap = document.createElement('div');
+      wrap.className = 'clip';
+      if (clipIndex != null && clipIndex !== '') {
+        var num = document.createElement('span');
+        num.className = 'clip-num';
+        num.setAttribute('aria-label', 'Clip ' + clipIndex);
+        num.textContent = String(clipIndex);
+        wrap.appendChild(num);
+      }
+      var m = document.createElement('div');
+      m.className = 'meta-lines';
+      m.textContent = metaLines;
+      wrap.appendChild(m);
+      var strong = document.createElement('strong');
+      strong.textContent = title;
+      wrap.appendChild(strong);
+      wrap.appendChild(document.createElement('br'));
+      var a = document.createElement('audio');
+      a.controls = true;
+      a.preload = 'none';
+      bindLazyAudio(a, audioUrl, wrap);
+      wrap.appendChild(a);
+
+      if (clipIdForPromote && CLIP_ID_RE.test(clipIdForPromote)) {
+        var pr = document.createElement('div');
+        pr.className = 'promote-row';
+        var btnWrap = document.createElement('div');
+        btnWrap.className = 'promote-btns';
+        var st = document.createElement('span');
+        st.className = 'promote-status';
+        function promote(label) {
+          st.textContent = '…';
+          fetch('/api/training/inbox/' + encodeURIComponent(clipIdForPromote) + '/promote', {
+            method: 'POST',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+            body: JSON.stringify({ label: label }),
+          })
+            .then(function (r) {
+              return r.json().then(function (j) {
+                return { ok: r.ok, j: j };
+              });
+            })
+            .then(function (x) {
+              if (x.ok && x.j && x.j.ok) {
+                st.className = 'promote-status ok';
+                st.textContent = 'Saved to custom_clips/' + label + ' — run POST /api/custom-head/train when ready.';
+                btnWrap.querySelectorAll('button').forEach(function (b) {
+                  b.disabled = true;
+                });
+              } else {
+                st.className = 'promote-status err';
+                st.textContent = (x.j && x.j.error) ? x.j.error : 'HTTP failed';
+              }
+            })
+            .catch(function (e) {
+              st.className = 'promote-status err';
+              st.textContent = String(e.message || e);
+            });
+        }
+        var b1 = document.createElement('button');
+        b1.type = 'button';
+        b1.textContent = 'Promote → bark';
+        b1.onclick = function () {
+          promote('bark');
+        };
+        var b2 = document.createElement('button');
+        b2.type = 'button';
+        b2.textContent = 'Promote → not_bark';
+        b2.onclick = function () {
+          promote('not_bark');
+        };
+        btnWrap.appendChild(b1);
+        btnWrap.appendChild(b2);
+        pr.appendChild(btnWrap);
+        pr.appendChild(st);
+        wrap.appendChild(pr);
+      }
+
+      container.appendChild(wrap);
+      return wrap;
+    }
+
+    /** Collapsible block (native details/summary); clips go in clipContainer. */
+    function section(title) {
+      var details = document.createElement('details');
+      details.className = 'catalog-section';
+      details.open = false;
+      var sum = document.createElement('summary');
+      sum.className = 'section-summary';
+      sum.textContent = title;
+      var body = document.createElement('div');
+      body.className = 'section-body';
+      details.appendChild(sum);
+      details.appendChild(body);
+      details.clipContainer = body;
+      return details;
+    }
+
+    document.getElementById('hear-ids').onclick = function () {
+      var idsOut = document.getElementById('ids-out');
+      var idsStatus = document.getElementById('ids-status');
+      idsOut.textContent = '';
+      var text = document.getElementById('ids-paste').value;
+      var ids = parseClipIds(text);
+      if (!ids.length) {
+        idsStatus.innerHTML = '<span class="err">No valid UUIDs found. Paste full clip_ids from logs.</span>';
+        return;
+      }
+      idsStatus.textContent = 'Showing ' + ids.length + ' clip(s). Missing files return HTTP 404 on play.';
+      var sec = section('Pasted clip IDs (' + ids.length + ')');
+      ids.forEach(function (cid, i) {
+        var wrap = appendClip(sec.clipContainer, cid, 'training_inbox/' + cid + '.wav', '/api/training/inbox/' + encodeURIComponent(cid) + '/audio', cid, i + 1);
+        fetch('/api/training/inbox/' + encodeURIComponent(cid) + '/wav-meta', { headers: authHeaders(), cache: 'no-store' })
+          .then(function (r) {
+            return r.ok ? r.json() : null;
+          })
+          .then(function (meta) {
+            if (!meta || !wrap) return;
+            var mEl = wrap.querySelector('.meta-lines');
+            if (!mEl) return;
+            var parts = [
+              catalogRmsPart({ rms: meta.rms }),
+              meta.capturedAt ? formatTimeIL(meta.capturedAt) : '',
+              'training_inbox/' + cid + '.wav',
+            ].filter(Boolean);
+            mEl.textContent = parts.join(' · ');
+          })
+          .catch(function () { /* leave default meta */ });
+      });
+      idsOut.appendChild(sec);
+    };
+
+    (function initIdsFromQuery() {
+      var q = new URLSearchParams(window.location.search).get('ids');
+      if (q) document.getElementById('ids-paste').value = q.replace(/,/g, '\n');
+    })();
+
+    function setCatalogButtonsBusy(busy) {
+      var loadBtn = document.getElementById('load');
+      var refreshBtn = document.getElementById('refresh-catalog');
+      if (loadBtn) loadBtn.disabled = !!busy;
+      if (refreshBtn) refreshBtn.disabled = !!busy;
+    }
+
+    function loadAudioCatalog() {
+      var status = document.getElementById('status');
+      var out = document.getElementById('out');
+      out.textContent = '';
+      status.textContent = 'Loading…';
+      setCatalogButtonsBusy(true);
+
+      fetch('/api/training/audio-catalog', { headers: authHeaders(), cache: 'no-store' })
+        .then(function (r) {
+          if (r.status === 401) {
+            throw new Error('Unauthorized — enter the same token as HEY_ADMIN_TOKEN.');
+          }
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function (data) {
+          status.textContent = '';
+          if (data.adminRequired && !document.getElementById('token').value.trim()) {
+            status.textContent = 'Tip: this server requires a token — paste it above and click Load or Refresh.';
+          }
+
+          var inboxRows = data.inbox || [];
+          if (inboxRows.length) {
+            var s = section('Training inbox (' + inboxRows.length + ')');
+            inboxRows.forEach(function (row, i) {
+              var parts = [
+                'bytes=' + (row.bytes || 0),
+                catalogRmsPart(row),
+                row.capturedAt ? formatTimeIL(row.capturedAt) : '',
+                row.clipId || '',
+                row.topLabel != null ? 'topLabel=' + row.topLabel : '',
+                row.isBark != null ? 'is_bark=' + row.isBark : '',
+              ].filter(Boolean);
+              appendClip(s.clipContainer, row.clipId || '(no id)', parts.join(' · '), '/api/training/inbox/' + encodeURIComponent(row.clipId) + '/audio', row.clipId, i + 1);
+            });
+            out.appendChild(s);
+          }
+
+          var mic = data.micTemp || [];
+          if (mic.length) {
+            var s2 = section('Mic temp (' + mic.length + ') — data/mic_temp');
+            mic.forEach(function (row, i) {
+              var parts = [
+                'bytes=' + (row.bytes || 0),
+                catalogRmsPart(row),
+                row.mtime ? formatTimeIL(row.mtime) : '',
+              ].filter(Boolean);
+              appendClip(s2.clipContainer, row.name, parts.join(' · '), '/api/training/mic-temp/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
+            });
+            out.appendChild(s2);
+          }
+
+          var cb = (data.custom && data.custom.bark) || [];
+          if (cb.length) {
+            var s3 = section('Custom clips — bark (' + cb.length + ')');
+            cb.forEach(function (row, i) {
+              var parts = [
+                'bytes=' + (row.bytes || 0),
+                catalogRmsPart(row),
+                row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
+              ].filter(Boolean);
+              appendClip(s3.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
+            });
+            out.appendChild(s3);
+          }
+
+          var cn = (data.custom && data.custom.not_bark) || [];
+          if (cn.length) {
+            var s4 = section('Custom clips — not_bark (' + cn.length + ')');
+            cn.forEach(function (row, i) {
+              var parts = [
+                'bytes=' + (row.bytes || 0),
+                catalogRmsPart(row),
+                row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
+              ].filter(Boolean);
+              appendClip(s4.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/not_bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
+            });
+            out.appendChild(s4);
+          }
+
+          if (!inboxRows.length && !mic.length && !cb.length && !cn.length) {
+            status.textContent = 'No WAV files found under training_inbox, mic_temp, or custom_clips.';
+          }
+        })
+        .catch(function (e) {
+          status.innerHTML = '<span class="err">' + String(e.message || e) + '</span>';
+        })
+        .finally(function () {
+          setCatalogButtonsBusy(false);
+        });
+    }
+
+    document.getElementById('load').onclick = loadAudioCatalog;
+    document.getElementById('refresh-catalog').onclick = loadAudioCatalog;
+  </script>
+</body>
+</html>

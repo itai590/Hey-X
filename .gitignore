@@ -1,0 +1,40 @@
+# dependencies
+node_modules
+/.pnp
+.pnp.js
+backend/node_modules
+frontend/node_modules
+frontend/build
+frontend/dist
+
+# testing
+coverage
+
+# production
+build
+
+# misc
+.DS_Store
+*.env
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+.idea
+certs/
+
+__pycache__/
+
+backend/data/hey.db*
+backend/data/*.db-shm
+backend/data/*.db-wal
+backend/data/custom_clips/
+backend/data/custom_model/
+backend/data/training_inbox/
+backend/data/mic_temp/*.wav
+backend/data/config.json
+
+private/
+private
+.tmp-buildx-config/

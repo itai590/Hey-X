@@ -1,0 +1,119 @@
+services:
+  backend:
+    container_name: hey-${DOG_SLUG}-backend
+    image: hey-${DOG_SLUG}-backend
+    build:
+      context: backend
+      dockerfile: Dockerfile
+    restart: always
+    volumes:
+      - ./backend/data:/app/backend/data # db + runtime config — single mount for persisted backend state
+      - nginx-logs:/var/log/nginx:ro
+      - /var/log/hey:/var/log/hey
+    tmpfs:
+      - /tmp:size=50m
+    devices:
+      - /dev/snd:/dev/snd
+    ports:
+      - "5100:5100"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:5100/api/config',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 180s
+    environment:
+      - TZ=${TZ:-UTC}
+      - DOG_SLUG=${DOG_SLUG}
+      - PUBLIC_URL=${PUBLIC_URL-/}
+      - PRIMARY_DOMAIN=${PRIMARY_DOMAIN}
+      - HEY_CONFIG_PATH=/app/backend/data/config.json
+      - HEY_ADMIN_TOKEN=${HEY_ADMIN_TOKEN}
+      - NGINX_LOG_PATH=/var/log/nginx/access.log
+      - ALERT_COOLDOWN_MINUTES=5 # suspicious-request alert cool down time
+      - ALERT_LOG_CONFIG_PROBE_404=${ALERT_LOG_CONFIG_PROBE_404:-true}
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - ALERT_EMAIL_FROM=${ALERT_EMAIL_FROM}
+      - ALERT_EMAIL_TO=${ALERT_EMAIL_TO}
+      - HEY_LOG_DIR=/var/log/hey # append logs to persists /var/log/hey/backend.log
+      - HEY_UNLINK_MIC_CLIP_AFTER_PROCESS=true # default true: delete clip-*.wav after processing; false: keeps files (watch disk)
+      - HEY_CLIP_TMP_DIR=/app/backend/data/mic_temp
+
+  health-watch:
+    container_name: hey-${DOG_SLUG}-health-watch
+    image: hey-${DOG_SLUG}-backend
+    restart: always
+    command: [ "npm", "run", "health-watch" ]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - TZ=${TZ:-UTC}
+      - DOG_SLUG=${DOG_SLUG}
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - ALERT_EMAIL_FROM=${ALERT_EMAIL_FROM}
+      - ALERT_EMAIL_TO=${ALERT_EMAIL_TO}
+      - HEALTH_WATCH_INTERVAL_SEC=${HEALTH_WATCH_INTERVAL_SEC:-60}
+      - HEALTH_ALERT_COOLDOWN_MINUTES=${HEALTH_ALERT_COOLDOWN_MINUTES:-30}
+      - HEALTH_WATCH_EMAIL_ON_RECOVERY=${HEALTH_WATCH_EMAIL_ON_RECOVERY:-false}
+    depends_on:
+      backend:
+        condition: service_started
+      frontend:
+        condition: service_started
+
+  frontend:
+    depends_on:
+      backend:
+        condition: service_healthy
+    container_name: hey-${DOG_SLUG}-frontend
+    image: hey-${DOG_SLUG}-frontend
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+      args:
+        PUBLIC_URL: ${PUBLIC_URL:-/}
+        TZ: ${TZ:-UTC}
+        PRIMARY_DOMAIN: ${PRIMARY_DOMAIN}
+    restart: always
+    ports:
+      - "8443:443"
+      # "8080:80" temporarily add for first time HTTP-only nginx (before certs exist)
+    environment:
+      - TZ=${TZ}
+      - DOG_SLUG=${DOG_SLUG}
+      - PUBLIC_URL=${PUBLIC_URL:-/}
+      - PRIMARY_DOMAIN=${PRIMARY_DOMAIN}
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt
+      - /var/lib/letsencrypt:/var/lib/letsencrypt
+      - nginx-logs:/var/log/nginx
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health" ]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 60s
+
+  certbot:
+    image: certbot/certbot
+    container_name: hey-${DOG_SLUG}-certbot
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt
+      - /var/lib/letsencrypt:/var/lib/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h &
+      wait $${!}; done;'"
+
+volumes:
+  nginx-logs:

@@ -1,0 +1,16 @@
+# Global ignores
+node_modules/
+
+# Ignore Local
+backend/node_modules
+frontend/node_modules
+frontend/build
+
+# Metadata
+backend/Dockerfile
+docker-compose.yml
+deploy.sh
+.git
+.gitignore
+*.md
+README.md

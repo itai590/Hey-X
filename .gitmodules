@@ -1,0 +1,4 @@
+[submodule "private"]
+	path = private
+	url = git@me.github.com:itai590/hey-sheldon-private.git
+	branch = main

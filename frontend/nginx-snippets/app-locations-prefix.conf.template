@@ -1,0 +1,35 @@
+    location ~* ^%%PUBLIC_URL%%/.+\.(?:ico|css|js|gif|jpe?g|png|woff2?|woff|eot|ttf|otf|svg|mp4|webm)$ {
+        root /usr/share/nginx/html;
+        expires 6M;
+        access_log off;
+        add_header Cache-Control "public, max-age=15552000, immutable";
+        try_files $uri =404;
+    }
+
+    location %%PUBLIC_URL%%/api/ {
+        proxy_pass http://backend:5100/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = %%PUBLIC_URL%% {
+        return 301 %%PUBLIC_URL%%/;
+    }
+
+    location %%PUBLIC_URL%%/ {
+        root /usr/share/nginx/html;
+        try_files $uri $uri/ @public_url_spa;
+    }
+
+    # Named fallback avoids try_files → internal redirect re-entering the same prefix location (cycle → 500).
+    location @public_url_spa {
+        root /usr/share/nginx/html;
+        rewrite ^.*$ %%PUBLIC_URL%%/index.html break;
+    }
+
+    location = / {
+        return 301 %%PUBLIC_URL%%/;
+    }

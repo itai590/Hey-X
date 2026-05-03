@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Build output
+frontend/build/
+frontend/dist/
+build/
+coverage/
+
+# Large / generated data files
+backend/data/hey.db*
+backend/data/*.db-shm
+backend/data/*.db-wal
+backend/data/custom_clips/
+backend/data/custom_model/
+backend/data/training_inbox/
+backend/data/mic_temp/*.wav
+
+# Certs & secrets
+certs/
+.env
+.env.*
+
+# Lock files (large, rarely useful to read)
+frontend/package-lock.json
+package-lock.json
+
+# Python cache
+__pycache__/
+*.pyc
+
+# macOS / IDE
+.DS_Store
+.idea/
+
+.tmp-buildx-config/

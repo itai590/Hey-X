@@ -1,0 +1,65 @@
+html, body {
+  height: 100%;
+  /* Dynamic viewport avoids Safari toolbar shrinking usable height vs 100vh */
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+body {
+  margin: 0;
+  background-color: #1a1a1a;
+}
+
+html, body, #root, main {
+  height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  background: radial-gradient(ellipse 130% 90% at 50% -12%, #252528 0%, #1a1a1a 55%, #121212 100%);
+  font-family: 'Roboto', 'Segoe UI', sans-serif;
+}
+
+.fill {
+  height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.scroll {
+  overflow-y: auto;
+}
+
+/* Green sonar effect */
+@keyframes green-sonar-effect {
+  0% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.2;
+    box-shadow: 0 0 0 5px #4caf50, 0 0 10px 10px #4caf50, 0 0 0 10px #4caf50;
+  }
+  50% {
+    box-shadow: 0 0 0 5px #4caf50, 0 0 10px 10px #4caf50, 0 0 0 10px #4caf50;
+    transform: scale(1.2);
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Red sonar effect */
+@keyframes red-sonar-effect {
+  0% {
+    opacity: 0.1;
+  }
+  40% {
+    opacity: 0.3;
+    box-shadow: 0 0 0 5px #f44336, 0 0 10px 10px #f44336, 0 0 0 10px #f44336;
+  }
+  100% {
+    box-shadow: 0 0 0 5px #f44336, 0 0 10px 10px #f44336, 0 0 0 10px #f44336;
+    transform: scale(1.2);
+    opacity: 0;
+  }
+}

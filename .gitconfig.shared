@@ -1,0 +1,10 @@
+[alias]
+	pull-sub = pull --recurse-submodules
+
+[pull]
+	recurseSubmodules = true
+
+# Apply with:
+# git config --local --add include.path ../.gitconfig.shared
+# Usage:
+# On repo root, run: git pull or git pull-sub

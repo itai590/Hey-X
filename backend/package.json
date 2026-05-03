@@ -1,0 +1,39 @@
+{
+  "name": "presence-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "",
+  "scripts": {
+    "test": "jest --runInBand --silent",
+    "start": "node server.js",
+    "health-watch": "node docker-health-watch.js",
+    "train-head": "python3 train_custom_head.py",
+    "inbox-train": "node inbox-train.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^11.9.1",
+    "body-parser": "^1.18.2",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "js-yaml": "^4.1.1",
+    "log-timestamp": "^0.3.0",
+    "multer": "^2.1.1",
+    "nodemailer": "^8.0.7",
+    "play-sound": "^1.1.2",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "keywords": [],
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/__tests__/**/*.test.js"
+    ],
+    "verbose": true
+  }
+}
