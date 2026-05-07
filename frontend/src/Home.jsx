@@ -16,7 +16,7 @@ import ErrorBanner from './components/ErrorBanner';
 import BackendLogsDialog from './components/BackendLogsDialog';
 import useMessages from './hooks/useMessages';
 import useConfig from './hooks/useConfig';
-import { apiUrl } from './apiBase';
+import { apiUrl, trainingListenPageUrl } from './apiBase';
 import { apiFetch } from './apiClient';
 import { useAdminAuth } from './AdminAuthProvider';
 import { formatBarkTimestamp } from './formatDisplayTime';
@@ -455,16 +455,16 @@ export default function Home() {
             {localMicMuted ? <MicOffIcon /> : <MicIcon />}
           </IconButton>
         </Tooltip>
-        <Tooltip title="Admin password (HEY_ADMIN_TOKEN). Required for any changes.">
+        <Tooltip title="Admin password">
           <IconButton onClick={openAdminDialog} sx={{ color: 'white' }} aria-label="Enter admin password">
             <LockIcon />
           </IconButton>
         </Tooltip>
         {hasAdminSession && (
-          <Tooltip title="Training WAV review — opens admin listen page (new tab)">
+          <Tooltip title="Training review">
             <IconButton
               component="a"
-              href={apiUrl('/training/listen')}
+              href={trainingListenPageUrl()}
               target="_blank"
               rel="noopener noreferrer"
               sx={{ color: 'white' }}
