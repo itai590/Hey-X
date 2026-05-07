@@ -282,11 +282,16 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       return String(m[1] || '').replace(/\/+$/, '');
     }
 
-    /** Absolute path under this origin, including deploy subpath when present. `absPathFromRoot` must start with /. */
+    /**
+     * Absolute path under this origin for `fetch`. Pass **`/api/...` only**. Mount prefix (`PUBLIC_URL`) is applied once inside `wavBlobUrl` / direct `fetch(heyApi(...))`; do not bake `heyApi()` into URLs passed into `wavBlobUrl` or the basename is doubled (`/hey-x/hey-x/api/...`).
+     * If `absPathFromRoot` already begins with `heyMountPrefix()`, it is returned unchanged.
+     */
     function heyApi(absPathFromRoot) {
+      var pre = heyMountPrefix();
       var q = String(absPathFromRoot || '');
       if (q.charAt(0) !== '/') q = '/' + q;
-      return heyMountPrefix() + q;
+      if (pre && (q === pre || q.indexOf(pre + '/') === 0)) return q;
+      return pre + q;
     }
 
     /** Display ISO times in the configured zone (DST per IANA). Stored values remain UTC in JSON. */
@@ -320,6 +325,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       return h;
     }
 
+    /** @param relUrl Site-root `/api/training/.../audio`; `heyApi` applies optional deploy basename exactly once */
     function wavBlobUrl(relUrl) {
       var u = heyApi(relUrl);
       return fetch(u, { headers: authHeaders() }).then(function (r) {
@@ -511,7 +517,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       idsStatus.textContent = 'Showing ' + ids.length + ' clip(s). Missing files return HTTP 404 on play.';
       var sec = section('Pasted clip IDs (' + ids.length + ')');
       ids.forEach(function (cid, i) {
-        var wrap = appendClip(sec.clipContainer, cid, 'training_inbox/' + cid + '.wav', heyApi('/api/training/inbox/' + encodeURIComponent(cid) + '/audio'), cid, i + 1);
+        var wrap = appendClip(sec.clipContainer, cid, 'training_inbox/' + cid + '.wav', '/api/training/inbox/' + encodeURIComponent(cid) + '/audio', cid, i + 1);
         fetch(heyApi('/api/training/inbox/' + encodeURIComponent(cid) + '/wav-meta'), { headers: authHeaders(), cache: 'no-store' })
           .then(function (r) {
             return r.ok ? r.json() : null;
@@ -581,7 +587,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
                 row.topLabel != null ? 'topLabel=' + row.topLabel : '',
                 row.isBark != null ? 'is_bark=' + row.isBark : '',
               ].filter(Boolean);
-              appendClip(s.clipContainer, row.clipId || '(no id)', parts.join(' · '), heyApi('/api/training/inbox/' + encodeURIComponent(row.clipId) + '/audio'), row.clipId, i + 1);
+              appendClip(s.clipContainer, row.clipId || '(no id)', parts.join(' · '), '/api/training/inbox/' + encodeURIComponent(row.clipId) + '/audio', row.clipId, i + 1);
             });
             out.appendChild(s);
           }
@@ -595,7 +601,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
                 catalogRmsPart(row),
                 row.mtime ? formatTimeIL(row.mtime) : '',
               ].filter(Boolean);
-              appendClip(s2.clipContainer, row.name, parts.join(' · '), heyApi('/api/training/mic-temp/' + encodeURIComponent(row.name) + '/audio'), undefined, i + 1);
+              appendClip(s2.clipContainer, row.name, parts.join(' · '), '/api/training/mic-temp/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
             });
             out.appendChild(s2);
           }
@@ -609,7 +615,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
                 catalogRmsPart(row),
                 row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
               ].filter(Boolean);
-              appendClip(s3.clipContainer, row.name, parts.join(' · '), heyApi('/api/training/custom-clips/bark/' + encodeURIComponent(row.name) + '/audio'), undefined, i + 1);
+              appendClip(s3.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
             });
             out.appendChild(s3);
           }
@@ -623,7 +629,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
                 catalogRmsPart(row),
                 row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
               ].filter(Boolean);
-              appendClip(s4.clipContainer, row.name, parts.join(' · '), heyApi('/api/training/custom-clips/not_bark/' + encodeURIComponent(row.name) + '/audio'), undefined, i + 1);
+              appendClip(s4.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/not_bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
             });
             out.appendChild(s4);
           }
