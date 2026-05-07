@@ -1,4 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback, useEffect, useLayoutEffect, useRef, useState,
+} from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -30,6 +32,14 @@ export default function BackendLogsDialog({ open, onClose }) {
   const [loading, setLoading] = useState(false);
   /** After 401 + login, rerun fetch once while dialog stays open */
   const needRetryAfterAuthRef = useRef(false);
+  /** Scrollable log viewport — keep newest lines visible (tail-first UX) */
+  const logScrollRef = useRef(null);
+
+  const scrollLogToBottom = useCallback(() => {
+    const el = logScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
 
   const load = useCallback(async () => {
     if (!open) return;
@@ -89,12 +99,25 @@ export default function BackendLogsDialog({ open, onClose }) {
     return () => window.removeEventListener('hey-admin-retry-pending', onRetry);
   }, [open, load]);
 
+  useLayoutEffect(() => {
+    if (!open || loading) return;
+    const id = requestAnimationFrame(() => {
+      scrollLogToBottom();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [open, loading, text, scrollLogToBottom]);
+
   return (
     <Dialog
       open={open}
       onClose={onClose}
       fullWidth
       maxWidth="md"
+      TransitionProps={{
+        onEntered: () => {
+          requestAnimationFrame(() => scrollLogToBottom());
+        },
+      }}
       slotProps={{
         paper: {
           sx: {
@@ -139,6 +162,7 @@ export default function BackendLogsDialog({ open, onClose }) {
             </Box>
           )}
           <Box
+            ref={logScrollRef}
             component="pre"
             sx={{
               m: 0,

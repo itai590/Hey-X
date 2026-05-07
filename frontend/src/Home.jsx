@@ -11,6 +11,7 @@ import MicOffIcon from '@mui/icons-material/MicOff';
 import DeleteIcon from '@mui/icons-material/Delete';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import TerminalIcon from '@mui/icons-material/Terminal';
+import HeadphonesOutlinedIcon from '@mui/icons-material/HeadphonesOutlined';
 import ErrorBanner from './components/ErrorBanner';
 import BackendLogsDialog from './components/BackendLogsDialog';
 import useMessages from './hooks/useMessages';
@@ -59,7 +60,7 @@ const nearlyEquals = (a, b) => Math.abs(a - b) < 1e-6;
 export default function Home() {
   const { messages, error, reload: reloadMessages } = useMessages();
   const { config, loading: configLoading, updateConfig, reload: reloadConfig } = useConfig();
-  const { openAdminDialog } = useAdminAuth();
+  const { openAdminDialog, hasAdminSession } = useAdminAuth();
 
   const pendingConfigRef = useRef(null);
   const pendingDeleteRef = useRef(false);
@@ -459,6 +460,20 @@ export default function Home() {
             <LockIcon />
           </IconButton>
         </Tooltip>
+        {hasAdminSession && (
+          <Tooltip title="Training WAV review — opens admin listen page (new tab)">
+            <IconButton
+              component="a"
+              href={apiUrl('/training/listen')}
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{ color: 'white' }}
+              aria-label="Open training WAV review"
+            >
+              <HeadphonesOutlinedIcon />
+            </IconButton>
+          </Tooltip>
+        )}
         <Tooltip title="Backend logs">
           <IconButton onClick={() => setLogsOpen(true)} sx={{ color: 'white' }} aria-label="Backend logs">
             <TerminalIcon />
