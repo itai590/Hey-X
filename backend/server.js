@@ -1024,6 +1024,7 @@ app.get('/api/training/mic-temp/:filename/audio', requireAdmin, (req, res) => {
     });
   }
   res.setHeader('Content-Type', 'audio/wav');
+  res.setHeader('Content-Length', String(st.size));
   res.setHeader('Cache-Control', 'no-store');
   fs.createReadStream(full).pipe(res);
 });
@@ -1042,7 +1043,14 @@ app.get('/api/training/custom-clips/:label/:filename/audio', requireAdmin, (req,
   if (!fileResolvedUnder(full, root) || !fs.existsSync(full)) {
     return res.status(404).json({ error: 'not found' });
   }
+  let st;
+  try {
+    st = fs.statSync(full);
+  } catch (_) {
+    return res.status(404).json({ error: 'not found' });
+  }
   res.setHeader('Content-Type', 'audio/wav');
+  res.setHeader('Content-Length', String(st.size));
   res.setHeader('Cache-Control', 'no-store');
   fs.createReadStream(full).pipe(res);
 });
@@ -1114,7 +1122,14 @@ app.get('/api/training/inbox/:clipId/audio', requireAdmin, (req, res) => {
   if (!wav) {
     return res.status(404).json({ error: 'clip not found or expired' });
   }
+  let st;
+  try {
+    st = fs.statSync(wav);
+  } catch (_) {
+    return res.status(404).json({ error: 'clip not found or expired' });
+  }
   res.setHeader('Content-Type', 'audio/wav');
+  res.setHeader('Content-Length', String(st.size));
   res.setHeader('Cache-Control', 'no-store');
   fs.createReadStream(wav).pipe(res);
 });

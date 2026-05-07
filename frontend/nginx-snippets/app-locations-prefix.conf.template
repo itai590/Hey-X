@@ -7,6 +7,10 @@
     }
 
     location %%PUBLIC_URL%%/api/ {
+        # Binary bodies (WAV, etc.): avoid buffering/transformation that breaks <audio> blobs behind TLS.
+        gzip off;
+        proxy_buffering off;
+        proxy_request_buffering off;
         proxy_pass http://backend:5100/api/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;

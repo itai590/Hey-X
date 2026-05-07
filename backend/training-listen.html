@@ -324,11 +324,19 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       var u = heyApi(relUrl);
       return fetch(u, { headers: authHeaders() }).then(function (r) {
         if (!r.ok) throw new Error(u + ' → HTTP ' + r.status);
-        return r.blob();
-      }).then(function (blob) {
-        if (blob.size === 0) {
+        return r.arrayBuffer();
+      }).then(function (buf) {
+        if (!buf || buf.byteLength === 0) {
           throw new Error('Empty audio (0 bytes) — the file on disk has no PCM data; refreshing the page does not fix this.');
         }
+        var first4 = new Uint8Array(buf.slice(0, 4));
+        var sig = String.fromCharCode(first4[0], first4[1], first4[2], first4[3]);
+        if (sig !== 'RIFF') {
+          throw new Error(
+            'Expected WAV (RIFF) but got "' + sig + '" — often HTML/JSON from nginx or a bad proxy path. Open DevTools → Network for ' + u,
+          );
+        }
+        var blob = new Blob([buf], { type: 'audio/wav' });
         return URL.createObjectURL(blob);
       });
     }
