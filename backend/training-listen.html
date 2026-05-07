@@ -262,6 +262,15 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
   <div id="out"></div>
 
   <script>
+    /** Same sessionStorage key as the React app (`authStorage.js`); avoids re-entering the token after main UI login. */
+    (function prefillAdminTokenFromHeyUi() {
+      try {
+        var inp = document.getElementById('token');
+        var t = sessionStorage.getItem('hey-admin-token');
+        if (inp && t && typeof t === 'string' && !String(inp.value).trim()) inp.value = t;
+      } catch (e) { /* private mode */ }
+    })();
+
     /** Display ISO times in the configured zone (DST per IANA). Stored values remain UTC in JSON. */
     function formatTimeIL(iso) {
       if (!iso || typeof iso !== 'string') return iso || '';

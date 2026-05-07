@@ -54,6 +54,10 @@ function renderHome() {
 }
 
 describe('Home UI', () => {
+  afterEach(() => {
+    sessionStorage.clear();
+  });
+
   beforeEach(() => {
     global.fetch = vi.fn(() =>
       Promise.resolve({
@@ -82,6 +86,15 @@ describe('Home UI', () => {
     expect(screen.getByRole('button', { name: /backend logs/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /mute microphone|unmute microphone/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button').length).toBeGreaterThanOrEqual(4);
+    expect(screen.queryByRole('link', { name: /open training wav review/i })).not.toBeInTheDocument();
+  });
+
+  test('shows training WAV review link when admin token is in session', () => {
+    sessionStorage.setItem('hey-admin-token', 'test-admin-token');
+    renderHome();
+    const link = screen.getByRole('link', { name: /open training wav review/i });
+    expect(link).toHaveAttribute('href', expect.stringContaining('/api/training/listen'));
+    expect(link).toHaveAttribute('target', '_blank');
   });
 
   test('sets document title from dog name in config', () => {
