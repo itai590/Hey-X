@@ -435,8 +435,8 @@ export default function Home() {
         <Tooltip
           title={
             localMicMuted
-              ? 'Unmute: resume capture and detection (audio stays on device for local YAMNet analysis)'
-              : 'Mute: stop all mic capture, no audio is recorded or sent to the sound classifier'
+              ? 'Unmute'
+              : 'Mute'
           }
         >
           <IconButton
@@ -454,17 +454,17 @@ export default function Home() {
             {localMicMuted ? <MicOffIcon /> : <MicIcon />}
           </IconButton>
         </Tooltip>
-        <Tooltip title="Admin password (same value as HEY_ADMIN_TOKEN on the Pi). Required to save settings or delete barks when the server enforces it.">
+        <Tooltip title="Admin password (HEY_ADMIN_TOKEN). Required for any changes.">
           <IconButton onClick={openAdminDialog} sx={{ color: 'white' }} aria-label="Enter admin password">
             <LockIcon />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Backend logs — requires admin password when HEY_ADMIN_TOKEN is set. Tail of persistent file when HEY_LOG_DIR is set; otherwise explains how to view logs elsewhere.">
+        <Tooltip title="Backend logs">
           <IconButton onClick={() => setLogsOpen(true)} sx={{ color: 'white' }} aria-label="Backend logs">
             <TerminalIcon />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Settings — detection, alerts, and browser tab">
+        <Tooltip title="Settings">
           <IconButton onClick={() => setSettingsOpen((o) => !o)} sx={{ color: 'white' }} aria-label="Open settings">
             <SettingsIcon />
           </IconButton>
