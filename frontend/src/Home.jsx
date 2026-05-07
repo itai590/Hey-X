@@ -10,7 +10,9 @@ import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import DeleteIcon from '@mui/icons-material/Delete';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import TerminalIcon from '@mui/icons-material/Terminal';
 import ErrorBanner from './components/ErrorBanner';
+import BackendLogsDialog from './components/BackendLogsDialog';
 import useMessages from './hooks/useMessages';
 import useConfig from './hooks/useConfig';
 import { apiUrl } from './apiBase';
@@ -87,6 +89,7 @@ export default function Home() {
   /** True when the latest clip is at/above the noise floor and its age is under AGGREGATION_TIMER (same as grouping window). */
   const [aboveNoiseFloor, setAboveNoiseFloor] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(false);
   /** 0 = mic/AI/signal, 1 = alert count + grouping window, 2 = browser tab title */
   const [settingsTab, setSettingsTab] = useState(0);
   const [selected, setSelected] = useState(new Set());
@@ -456,8 +459,13 @@ export default function Home() {
             <LockIcon />
           </IconButton>
         </Tooltip>
+        <Tooltip title="Backend logs — requires admin password when HEY_ADMIN_TOKEN is set. Tail of persistent file when HEY_LOG_DIR is set; otherwise explains how to view logs elsewhere.">
+          <IconButton onClick={() => setLogsOpen(true)} sx={{ color: 'white' }} aria-label="Backend logs">
+            <TerminalIcon />
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Settings — detection, alerts, and browser tab">
-          <IconButton onClick={() => setSettingsOpen((o) => !o)} sx={{ color: 'white' }}>
+          <IconButton onClick={() => setSettingsOpen((o) => !o)} sx={{ color: 'white' }} aria-label="Open settings">
             <SettingsIcon />
           </IconButton>
         </Tooltip>
@@ -943,6 +951,8 @@ export default function Home() {
           </ul>
         </Box>
       )}
+
+      <BackendLogsDialog open={logsOpen} onClose={() => setLogsOpen(false)} />
 
       <Snackbar
         open={snack.open}

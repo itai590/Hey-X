@@ -57,8 +57,11 @@ const config = {
   /** Copy each classified clip to data/training_inbox/ with a clip_id (UUID) for logs + promote-to-training. */
   TRAINING_INBOX_ENABLED: true,
   /** Max WAV files kept in training_inbox (oldest removed first). */
-  TRAINING_INBOX_MAX_FILES: 80,
+  TRAINING_INBOX_MAX_FILES: 1800,
 };
+
+/** Upper bound for TRAINING_INBOX_MAX_FILES (API + runtime clamp). */
+const TRAINING_INBOX_MAX_FILES_CAP = 1800;
 
 function loadConfig() {
   if (fs.existsSync(configPath)) {
@@ -151,7 +154,10 @@ function buildCustomHeadOpts() {
 
 function tryCaptureClip(wavPath, meta) {
   if (!config.TRAINING_INBOX_ENABLED) return null;
-  const maxFiles = Math.min(500, Math.max(10, Number(config.TRAINING_INBOX_MAX_FILES) || 80));
+  const maxFiles = Math.min(
+    TRAINING_INBOX_MAX_FILES_CAP,
+    Math.max(10, Number(config.TRAINING_INBOX_MAX_FILES) || 1800),
+  );
   try {
     return trainingInbox.captureClip({
       backendRoot: __dirname,
@@ -315,6 +321,7 @@ soundDetector.on('detected', async ({ wavPath }) => {
         topScore,
         barkScore: result.bark_score,
         yamnetIsBark: result.yamnet_is_bark,
+        yamnetRelaxedBark: !!result.yamnet_relaxed_bark,
         isBark: result.is_bark,
         customHeadScore: result.custom_head_score,
         customHeadUsed: result.custom_head_used,
@@ -329,6 +336,7 @@ soundDetector.on('detected', async ({ wavPath }) => {
         barkScore: result.bark_score ?? 0,
         isBark: !!result.is_bark,
         yamnetIsBark: !!result.yamnet_is_bark,
+        yamnetRelaxedBark: !!result.yamnet_relaxed_bark,
         customHeadScore: result.custom_head_score,
         customHeadUsed: !!result.custom_head_used,
         clipId: clipId || undefined,
@@ -343,11 +351,13 @@ soundDetector.on('detected', async ({ wavPath }) => {
         result.custom_head_used && typeof result.custom_head_score === 'number'
           ? ` custom_head=${result.custom_head_score}`
           : '';
+      const relaxedPart =
+        result.yamnet_relaxed_bark ? ' yamnet_relaxed_bark=true' : '';
       const idPart = clipId ? ` clip_id=${clipId}` : '';
       console.log(
         `rms=${rms.toFixed(4)} classified: ${topLabel} (${topScore}) ` +
         `bark_score=${result.bark_score} yamnet_is_bark=${result.yamnet_is_bark ?? false} is_bark=${result.is_bark ?? false}` +
-        `${chPart} | top5: ${top5 || '—'}${errPart}${idPart}`
+        `${relaxedPart}${chPart} | top5: ${top5 || '—'}${errPart}${idPart}`
       );
 
       if (result.is_bark) {
@@ -443,6 +453,95 @@ app.post('/api/auth/verify-admin', (req, res) => {
     return res.status(401).json({ error: 'Invalid admin token', needsAdminAuth: true });
   }
   return res.json({ ok: true });
+});
+
+const LOG_TAIL_BYTES_DEFAULT = 384 * 1024;
+const LOG_TAIL_BYTES_MAX = 2 * 1024 * 1024;
+
+/**
+ * Read last `maxBytes` of UTF-8 text; if not from start of file, drop first partial line.
+ * @param {string} logAbsPath
+ * @param {number} maxBytes
+ * @returns {Promise<{ text: string, truncated: boolean, size: number }>}
+ */
+async function readBackendLogTail(logAbsPath, maxBytes) {
+  const st = await fs.promises.stat(logAbsPath);
+  const size = st.size;
+  if (size === 0) {
+    return { text: '', truncated: false, size: 0 };
+  }
+  const readLen = Math.min(maxBytes, size);
+  const start = size - readLen;
+  const fh = await fs.promises.open(logAbsPath, 'r');
+  try {
+    const buf = Buffer.alloc(readLen);
+    await fh.read(buf, 0, readLen, start);
+    let text = buf.toString('utf8');
+    if (start > 0) {
+      const nl = text.indexOf('\n');
+      if (nl !== -1) {
+        text = text.slice(nl + 1);
+      }
+    }
+    return { text, truncated: start > 0, size };
+  } finally {
+    await fh.close();
+  }
+}
+
+/** Admin: tail of persistent backend log file (HEY_LOG_DIR/backend.log). */
+app.get('/api/admin/logs', requireAdmin, async (req, res) => {
+  try {
+    const raw = (process.env.HEY_LOG_DIR || '').trim();
+    if (!raw) {
+      return res.json({
+        ok: true,
+        configured: false,
+        message:
+          'HEY_LOG_DIR is not set on the server — logs are not written to a file. '
+          + 'Use docker logs / journalctl on the host, or set HEY_LOG_DIR to enable file logging.',
+        text: '',
+      });
+    }
+
+    const dir = path.resolve(raw);
+    const logFile = path.join(dir, 'backend.log');
+
+    let maxBytes = LOG_TAIL_BYTES_DEFAULT;
+    if (req.query && req.query.maxBytes != null) {
+      const n = parseInt(String(req.query.maxBytes), 10);
+      if (!Number.isNaN(n)) {
+        maxBytes = Math.min(LOG_TAIL_BYTES_MAX, Math.max(4096, n));
+      }
+    }
+
+    try {
+      await fs.promises.access(logFile, fs.constants.R_OK);
+    } catch (_) {
+      return res.json({
+        ok: true,
+        configured: true,
+        path: logFile,
+        empty: true,
+        message: 'Log file does not exist yet (nothing written after deploy, or logging just started).',
+        text: '',
+      });
+    }
+
+    const { text, truncated, size } = await readBackendLogTail(logFile, maxBytes);
+    return res.json({
+      ok: true,
+      configured: true,
+      path: logFile,
+      fileSizeBytes: size,
+      truncated,
+      maxBytes,
+      text,
+    });
+  } catch (err) {
+    console.error('admin/logs read error:', err.message);
+    return res.status(500).json({ error: 'Failed to read log file', detail: String(err.message || err) });
+  }
 });
 
 // === API: Messages ===
@@ -639,8 +738,10 @@ app.put('/api/config', requireAdmin, (req, res) => {
 
   if (updates.TRAINING_INBOX_MAX_FILES !== undefined) {
     const v = Math.round(Number(updates.TRAINING_INBOX_MAX_FILES));
-    if (isNaN(v) || v < 10 || v > 500) {
-      return res.status(400).json({ error: 'TRAINING_INBOX_MAX_FILES must be 10-500' });
+    if (isNaN(v) || v < 10 || v > TRAINING_INBOX_MAX_FILES_CAP) {
+      return res.status(400).json({
+        error: `TRAINING_INBOX_MAX_FILES must be 10-${TRAINING_INBOX_MAX_FILES_CAP}`,
+      });
     }
     config.TRAINING_INBOX_MAX_FILES = v;
   }

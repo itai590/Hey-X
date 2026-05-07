@@ -79,8 +79,9 @@ describe('Home UI', () => {
   test('exposes settings, lock, and mic controls', () => {
     renderHome();
     expect(screen.getByRole('button', { name: /enter admin password/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /backend logs/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /mute microphone|unmute microphone/i })).toBeInTheDocument();
-    expect(screen.getAllByRole('button').length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByRole('button').length).toBeGreaterThanOrEqual(4);
   });
 
   test('sets document title from dog name in config', () => {
@@ -100,9 +101,7 @@ describe('Home UI', () => {
   test('opens settings panel with Detection / Alerts / Browser tabs', async () => {
     const user = userEvent.setup();
     renderHome();
-    const buttons = screen.getAllByRole('button');
-    // Top bar order: mic, lock, settings gear
-    await user.click(buttons[2]);
+    await user.click(screen.getByRole('button', { name: /^open settings$/i }));
     expect(screen.getByRole('tab', { name: /^Detection$/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /^Alerts$/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /^Browser$/i })).toBeInTheDocument();
