@@ -271,6 +271,24 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       } catch (e) { /* private mode */ }
     })();
 
+    /**
+     * SPA often served under PUBLIC_URL basename (e.g. /hey-x-sheldon). This page URL is …/basename/api/training/listen —
+     * raw fetch('/api/...') wrongly hits the origin root and returns HTTP 404. Mirror frontend `BASE_URL`: prefix `/api`.
+     */
+    function heyMountPrefix() {
+      var p = String(window.location.pathname || '');
+      var m = p.match(/^(.*)\/api\/training\/listen\/?$/i);
+      if (!m) return '';
+      return String(m[1] || '').replace(/\/+$/, '');
+    }
+
+    /** Absolute path under this origin, including deploy subpath when present. `absPathFromRoot` must start with /. */
+    function heyApi(absPathFromRoot) {
+      var q = String(absPathFromRoot || '');
+      if (q.charAt(0) !== '/') q = '/' + q;
+      return heyMountPrefix() + q;
+    }
+
     /** Display ISO times in the configured zone (DST per IANA). Stored values remain UTC in JSON. */
     function formatTimeIL(iso) {
       if (!iso || typeof iso !== 'string') return iso || '';
@@ -303,8 +321,9 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     }
 
     function wavBlobUrl(relUrl) {
-      return fetch(relUrl, { headers: authHeaders() }).then(function (r) {
-        if (!r.ok) throw new Error(relUrl + ' → HTTP ' + r.status);
+      var u = heyApi(relUrl);
+      return fetch(u, { headers: authHeaders() }).then(function (r) {
+        if (!r.ok) throw new Error(u + ' → HTTP ' + r.status);
         return r.blob();
       }).then(function (blob) {
         if (blob.size === 0) {
@@ -405,7 +424,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         st.className = 'promote-status';
         function promote(label) {
           st.textContent = '…';
-          fetch('/api/training/inbox/' + encodeURIComponent(clipIdForPromote) + '/promote', {
+          fetch(heyApi('/api/training/inbox/' + encodeURIComponent(clipIdForPromote) + '/promote'), {
             method: 'POST',
             headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
             body: JSON.stringify({ label: label }),
@@ -484,8 +503,8 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       idsStatus.textContent = 'Showing ' + ids.length + ' clip(s). Missing files return HTTP 404 on play.';
       var sec = section('Pasted clip IDs (' + ids.length + ')');
       ids.forEach(function (cid, i) {
-        var wrap = appendClip(sec.clipContainer, cid, 'training_inbox/' + cid + '.wav', '/api/training/inbox/' + encodeURIComponent(cid) + '/audio', cid, i + 1);
-        fetch('/api/training/inbox/' + encodeURIComponent(cid) + '/wav-meta', { headers: authHeaders(), cache: 'no-store' })
+        var wrap = appendClip(sec.clipContainer, cid, 'training_inbox/' + cid + '.wav', heyApi('/api/training/inbox/' + encodeURIComponent(cid) + '/audio'), cid, i + 1);
+        fetch(heyApi('/api/training/inbox/' + encodeURIComponent(cid) + '/wav-meta'), { headers: authHeaders(), cache: 'no-store' })
           .then(function (r) {
             return r.ok ? r.json() : null;
           })
@@ -528,7 +547,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       status.textContent = 'Loading…';
       setCatalogButtonsBusy(true);
 
-      fetch('/api/training/audio-catalog', { headers: authHeaders(), cache: 'no-store' })
+      fetch(heyApi('/api/training/audio-catalog'), { headers: authHeaders(), cache: 'no-store' })
         .then(function (r) {
           if (r.status === 401) {
             throw new Error('Unauthorized — enter the same token as HEY_ADMIN_TOKEN.');
@@ -554,7 +573,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
                 row.topLabel != null ? 'topLabel=' + row.topLabel : '',
                 row.isBark != null ? 'is_bark=' + row.isBark : '',
               ].filter(Boolean);
-              appendClip(s.clipContainer, row.clipId || '(no id)', parts.join(' · '), '/api/training/inbox/' + encodeURIComponent(row.clipId) + '/audio', row.clipId, i + 1);
+              appendClip(s.clipContainer, row.clipId || '(no id)', parts.join(' · '), heyApi('/api/training/inbox/' + encodeURIComponent(row.clipId) + '/audio'), row.clipId, i + 1);
             });
             out.appendChild(s);
           }
@@ -568,7 +587,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
                 catalogRmsPart(row),
                 row.mtime ? formatTimeIL(row.mtime) : '',
               ].filter(Boolean);
-              appendClip(s2.clipContainer, row.name, parts.join(' · '), '/api/training/mic-temp/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
+              appendClip(s2.clipContainer, row.name, parts.join(' · '), heyApi('/api/training/mic-temp/' + encodeURIComponent(row.name) + '/audio'), undefined, i + 1);
             });
             out.appendChild(s2);
           }
@@ -582,7 +601,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
                 catalogRmsPart(row),
                 row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
               ].filter(Boolean);
-              appendClip(s3.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
+              appendClip(s3.clipContainer, row.name, parts.join(' · '), heyApi('/api/training/custom-clips/bark/' + encodeURIComponent(row.name) + '/audio'), undefined, i + 1);
             });
             out.appendChild(s3);
           }
@@ -596,7 +615,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
                 catalogRmsPart(row),
                 row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
               ].filter(Boolean);
-              appendClip(s4.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/not_bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
+              appendClip(s4.clipContainer, row.name, parts.join(' · '), heyApi('/api/training/custom-clips/not_bark/' + encodeURIComponent(row.name) + '/audio'), undefined, i + 1);
             });
             out.appendChild(s4);
           }
@@ -627,7 +646,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       }
       setCatalogButtonsBusy(true);
       status.textContent = 'Training custom head… (wait for the server to finish)';
-      fetch('/api/custom-head/train', {
+      fetch(heyApi('/api/custom-head/train'), {
         method: 'POST',
         headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
         body: '{}',
@@ -723,7 +742,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       }
       setCatalogButtonsBusy(true);
       status.textContent = 'Clearing training inbox…';
-      fetch('/api/training/inbox', { method: 'DELETE', headers: authHeaders(), cache: 'no-store' })
+      fetch(heyApi('/api/training/inbox'), { method: 'DELETE', headers: authHeaders(), cache: 'no-store' })
         .then(function (r) {
           return r.json().then(function (j) {
             return { ok: r.ok, status: r.status, j: j };

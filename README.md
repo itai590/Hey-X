@@ -182,7 +182,7 @@ When `TRAINING_INBOX_ENABLED=true`, each classified sound gets a `clip_id` and l
 1. Copy a `clip_id` from logs or `GET /api/presence`.
 2. Promote it to `bark` or `not_bark`:
 
-- Browser UI: `http://<server-ip>:5100/api/training/listen` (paste admin token there if `HEY_ADMIN_TOKEN` is set).
+- Browser UI: `http://<host>:5100/api/training/listen` (paste admin token there if `HEY_ADMIN_TOKEN` is set).
 
   ![Hey Sheldon WAV review UI](docs/training-listen-ui.png)
 
@@ -215,7 +215,7 @@ docker compose exec backend npm run inbox-train -- YOUR-UUID-HERE bark
 
 1. Train the custom head (if promote-only path was used):
 
-- Swagger docs: `http://<server-ip>:5100/api/docs/` → run `POST /api/custom-head/train`.
+- Swagger docs: `http://<host>:5100/api/docs/` → run `POST /api/custom-head/train`.
 - CLI: `cd backend && npm run train-head`.
 
 All paths use the same underlying training script (`train_custom_head.py`); only the trigger method changes.
