@@ -37,6 +37,8 @@ paths:
     post:
       tags: [Auth]
       summary: Verify admin password or Bearer token
+      security:
+        - bearerMainAuth: []
       requestBody:
         required: false
         content:
@@ -52,6 +54,8 @@ paths:
                   enum: [main, training]
                   default: main
                   description: Which env secret to check (main SPA/docs/clip upload or training WAV API)
+            example:
+              audience: main
       responses:
         "200":
           description: OK
