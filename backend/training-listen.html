@@ -67,15 +67,16 @@
     }
     details.catalog-section > summary.section-summary::-webkit-details-marker { display: none; }
     details.catalog-section > summary.section-summary::before {
-      content: '▾ ';
+      content: '🔓 ';
       display: inline-block;
       width: 1.1em;
       color: var(--accent);
-      transition: transform 0.15s ease;
-      transform: rotate(0deg);
+      transition: opacity 0.15s ease;
+      opacity: 0.95;
     }
     details.catalog-section:not([open]) > summary.section-summary::before {
-      transform: rotate(-90deg);
+      content: '🔒 ';
+      opacity: 1;
     }
     details.catalog-section .section-body { padding-left: 0.15rem; }
     .token-row { margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
