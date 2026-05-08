@@ -315,6 +315,22 @@ soundDetector.on('detected', async ({ wavPath }) => {
       const topLabel = result.labels?.[0]?.class || '?';
       const topScore = result.labels?.[0]?.score || 0;
 
+      const top5 = (result.labels || [])
+        .slice(0, 5)
+        .map((l) => `${l.class}=${l.score}`)
+        .join(' ');
+      const errPart = result.error ? ` error=${result.error}` : '';
+      const chPart =
+        result.custom_head_used && typeof result.custom_head_score === 'number'
+          ? ` custom_head=${result.custom_head_score}`
+          : '';
+      const relaxedPart =
+        result.yamnet_relaxed_bark ? ' yamnet_relaxed_bark=true' : '';
+      const classifyLogLine =
+        `rms=${rms.toFixed(4)} classified: ${topLabel} (${topScore}) ` +
+        `bark_score=${result.bark_score} yamnet_is_bark=${result.yamnet_is_bark ?? false} is_bark=${result.is_bark ?? false}` +
+        `${relaxedPart}${chPart} | top5: ${top5 || '—'}${errPart}`;
+
       const meta = {
         rms,
         topLabel,
@@ -327,6 +343,7 @@ soundDetector.on('detected', async ({ wavPath }) => {
         customHeadUsed: result.custom_head_used,
         top5: (result.labels || []).slice(0, 5).map((l) => ({ class: l.class, score: l.score })),
         classifyError: result.error || null,
+        classifyLogLine,
       };
       const clipId = tryCaptureClip(wavPath, meta);
 
@@ -342,22 +359,9 @@ soundDetector.on('detected', async ({ wavPath }) => {
         clipId: clipId || undefined,
       };
 
-      const top5 = (result.labels || [])
-        .slice(0, 5)
-        .map((l) => `${l.class}=${l.score}`)
-        .join(' ');
-      const errPart = result.error ? ` error=${result.error}` : '';
-      const chPart =
-        result.custom_head_used && typeof result.custom_head_score === 'number'
-          ? ` custom_head=${result.custom_head_score}`
-          : '';
-      const relaxedPart =
-        result.yamnet_relaxed_bark ? ' yamnet_relaxed_bark=true' : '';
       const idPart = clipId ? ` clip_id=${clipId}` : '';
       console.log(
-        `rms=${rms.toFixed(4)} classified: ${topLabel} (${topScore}) ` +
-        `bark_score=${result.bark_score} yamnet_is_bark=${result.yamnet_is_bark ?? false} is_bark=${result.is_bark ?? false}` +
-        `${relaxedPart}${chPart} | top5: ${top5 || '—'}${errPart}${idPart}`
+        `${classifyLogLine}${idPart}`
       );
 
       if (result.is_bark) {
@@ -366,7 +370,8 @@ soundDetector.on('detected', async ({ wavPath }) => {
         }
       }
     } else {
-      const clipId = tryCaptureClip(wavPath, { rms, aiOff: true });
+      const aiOffLogLine = `rms=${rms.toFixed(4)} (AI off, skipping classification)`;
+      const clipId = tryCaptureClip(wavPath, { rms, aiOff: true, classifyLogLine: aiOffLogLine });
       lastClassified = {
         topLabel: '—',
         topScore: 0,
@@ -377,7 +382,7 @@ soundDetector.on('detected', async ({ wavPath }) => {
       };
       const idPart = clipId ? ` clip_id=${clipId}` : '';
       console.log(
-        `rms=${rms.toFixed(4)} (AI off, skipping classification)${idPart}`
+        `${aiOffLogLine}${idPart}`
       );
       if (++detections >= config.DETECTION_THRESHOLD) {
         hey.send();
@@ -386,10 +391,13 @@ soundDetector.on('detected', async ({ wavPath }) => {
   } catch (err) {
     console.error("Classification error:", err.message);
     let cid = null;
+    const classifyErrorLogLine =
+      `rms=${rms.toFixed(4)} classification error: ${String(err.message || err)}`;
     if (config.TRAINING_INBOX_ENABLED && fs.existsSync(wavPath)) {
       cid = tryCaptureClip(wavPath, {
         rms,
         nodeClassifyError: String(err.message || err),
+        classifyLogLine: classifyErrorLogLine,
       });
     }
     if (cid) {

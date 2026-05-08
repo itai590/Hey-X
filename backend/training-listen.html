@@ -136,6 +136,15 @@
       margin-bottom: 0.4rem;
       word-break: break-all;
     }
+    .log-line {
+      margin-top: 0.35rem;
+      font-size: 0.76rem;
+      font-family: ui-monospace, monospace;
+      color: rgba(245, 235, 224, 0.86);
+      white-space: pre-wrap;
+      word-break: break-word;
+      opacity: 0.92;
+    }
     .clip strong { color: #f5ebe0; font-weight: 700; }
     audio {
       width: 100%;
@@ -419,7 +428,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       return out;
     }
 
-    function appendClip(container, title, metaLines, audioUrl, clipIdForPromote, clipIndex) {
+    function appendClip(container, title, metaLines, audioUrl, clipIdForPromote, clipIndex, classifyLogLine) {
       var wrap = document.createElement('div');
       wrap.className = 'clip';
       if (clipIndex != null && clipIndex !== '') {
@@ -496,6 +505,13 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         pr.appendChild(btnWrap);
         pr.appendChild(st);
         wrap.appendChild(pr);
+      }
+
+      if (classifyLogLine && typeof classifyLogLine === 'string') {
+        var ll = document.createElement('div');
+        ll.className = 'log-line';
+        ll.textContent = classifyLogLine;
+        wrap.appendChild(ll);
       }
 
       container.appendChild(wrap);
@@ -601,7 +617,15 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
                 row.topLabel != null ? 'topLabel=' + row.topLabel : '',
                 row.isBark != null ? 'is_bark=' + row.isBark : '',
               ].filter(Boolean);
-              appendClip(s.clipContainer, row.clipId || '(no id)', parts.join(' · '), '/api/training/inbox/' + encodeURIComponent(row.clipId) + '/audio', row.clipId, i + 1);
+              appendClip(
+                s.clipContainer,
+                row.clipId || '(no id)',
+                parts.join(' · '),
+                '/api/training/inbox/' + encodeURIComponent(row.clipId) + '/audio',
+                row.clipId,
+                i + 1,
+                row.classifyLogLine || '',
+              );
             });
             out.appendChild(s);
           }
