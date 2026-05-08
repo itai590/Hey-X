@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider } from '@mui/material/styles';
 import Home from './Home';
@@ -95,6 +95,18 @@ describe('Home UI', () => {
     const link = screen.getByRole('link', { name: /open training wav review/i });
     expect(link).toHaveAttribute('href', expect.stringContaining('/api/training/listen'));
     expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  test('refreshes lock state when the tab becomes visible', async () => {
+    renderHome();
+    expect(screen.getByRole('button', { name: /enter admin password/i })).toBeInTheDocument();
+
+    sessionStorage.setItem('hey-admin-token', 'test-admin-token');
+    fireEvent(document, new Event('visibilitychange'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /admin authenticated/i })).toBeInTheDocument();
+    });
   });
 
   test('sets document title from dog name in config', () => {

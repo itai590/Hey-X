@@ -479,7 +479,7 @@ export default function Home() {
           <IconButton
             onClick={openAdminDialog}
             sx={{ color: hasAdminSession ? '#66bb6a' : 'white' }}
-            aria-label="Enter admin password"
+            aria-label={hasAdminSession ? 'Admin authenticated' : 'Enter admin password'}
           >
             {hasAdminSession ? <LockOpenIcon /> : <LockIcon />}
           </IconButton>

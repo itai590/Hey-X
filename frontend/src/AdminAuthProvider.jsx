@@ -19,6 +19,9 @@ export function AdminAuthProvider({ children }) {
   const [hasAdminSession, setHasAdminSession] = useState(() => Boolean(getAdminToken().trim()));
 
   const openAdminDialog = useCallback(() => setDialogOpen(true), []);
+  const refreshAdminSession = useCallback(() => {
+    setHasAdminSession(Boolean(getAdminToken().trim()));
+  }, []);
 
   useEffect(() => {
     const onNeedAuth = () => {
@@ -39,6 +42,18 @@ export function AdminAuthProvider({ children }) {
       window.removeEventListener(HEY_ADMIN_TOKEN_CHANGED, onTokenChanged);
     };
   }, []);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshAdminSession();
+    };
+    window.addEventListener('focus', refreshAdminSession);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', refreshAdminSession);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [refreshAdminSession]);
 
   const handleLoggedIn = useCallback(() => {
     setHasAdminSession(true);
