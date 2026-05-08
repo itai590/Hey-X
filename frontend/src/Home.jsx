@@ -95,6 +95,7 @@ export default function Home() {
   /** 0 = mic/AI/signal, 1 = alert count + grouping window, 2 = browser tab title */
   const [settingsTab, setSettingsTab] = useState(0);
   const [selected, setSelected] = useState(new Set());
+  const [expandedMessages, setExpandedMessages] = useState(new Set());
   const [snack, setSnack] = useState({ open: false, message: '', severity: 'success' });
 
   // Local editable copies of config values (only committed on blur/change)
@@ -110,6 +111,7 @@ export default function Home() {
   /** CSS-only landscape queries miss some iOS Safari viewports; matchMedia is reliable. */
   const mqShortHeight = useMediaQuery('(max-height: 520px)', { noSsr: true });
   const mqLandscapeNarrow = useMediaQuery('(orientation: landscape) and (max-width: 960px)', { noSsr: true });
+  const isMobile = useMediaQuery('(max-width: 600px)', { noSsr: true });
   /** Short but wide: landscape phones even when orientation / height media queries lie */
   const mqWideShort = useMediaQuery('(max-height: 560px) and (min-width: 480px)', { noSsr: true });
   const compactHeaderRow = mqLandscapeNarrow || mqWideShort;
@@ -383,6 +385,22 @@ export default function Home() {
     (a, b) => new Date(b.update_time || b.create_time) - new Date(a.update_time || a.create_time)
   );
 
+  const shouldCollapseMessage = useCallback((text) => {
+    if (typeof text !== 'string') return false;
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    return trimmed.length > 110 || trimmed.includes('| top5:') || trimmed.startsWith('rms=');
+  }, []);
+
+  const toggleMessageExpanded = useCallback((messageId) => {
+    setExpandedMessages((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) next.delete(messageId);
+      else next.add(messageId);
+      return next;
+    });
+  }, []);
+
   return (
     <Box
       className="fill"
@@ -456,7 +474,7 @@ export default function Home() {
             {localMicMuted ? <MicOffIcon /> : <MicIcon />}
           </IconButton>
         </Tooltip>
-        <Tooltip title={hasAdminSession ? 'Admin unlocked (password saved in this tab)' : 'Admin locked - enter password'}>
+        <Tooltip title={hasAdminSession ? 'Admin authenticated' : 'Admin locked'}>
           <IconButton
             onClick={openAdminDialog}
             sx={{ color: hasAdminSession ? '#66bb6a' : 'white' }}
@@ -941,6 +959,27 @@ export default function Home() {
                     px: { xs: 3.5, sm: 5 },
                   }}
                 >
+                  {isMobile && shouldCollapseMessage(msg.text) && (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mb: 0.25 }}>
+                      <Button
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleMessageExpanded(msg.id);
+                        }}
+                        sx={{
+                          textTransform: 'none',
+                          minWidth: 0,
+                          px: 1,
+                          color: '#90caf9',
+                          fontSize: '0.72rem',
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        {expandedMessages.has(msg.id) ? 'Collapse' : 'Expand details'}
+                      </Button>
+                    </Box>
+                  )}
                   <Typography
                     component="div"
                     variant="body1"
@@ -961,6 +1000,14 @@ export default function Home() {
                       fontSize: { xs: '1rem', sm: '1.0625rem', md: '1.125rem' },
                       color: 'rgba(245, 235, 224, 0.88)',
                       mt: 0.5,
+                      ...(isMobile && shouldCollapseMessage(msg.text) && !expandedMessages.has(msg.id)
+                        ? {
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }
+                        : {}),
                     }}
                   >
                     {msg.text}
