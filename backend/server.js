@@ -1397,6 +1397,50 @@ app.get('/api/openapi.yaml', requireDocsAdmin, (_req, res) => {
  */
 const swaggerUiAuthorizeInputScript = `(function(){var r=document.getElementById("swagger-ui");if(!r)return;function p(){r.querySelectorAll(".dialog-ux input,.modal-ux input,[role=dialog] input").forEach(function(i){if(i.dataset.heySwaggerPm)return;i.dataset.heySwaggerPm="1";i.type="password";i.setAttribute("autocomplete","current-password");i.setAttribute("name","hey-admin-bearer-token");i.setAttribute("autocorrect","off");i.setAttribute("autocapitalize","off");i.setAttribute("spellcheck","false");});}p();new MutationObserver(p).observe(r,{childList:!0,subtree:!0});})();`;
 
+function swaggerUiBearerTokenRequestInterceptor(req) {
+  function plain(value) {
+    if (value == null) return '';
+    if (typeof value === 'string') return value.replace(/^Bearer\s+/i, '').trim();
+    if (typeof value.toJS === 'function') return plain(value.toJS());
+    if (typeof value.get === 'function') {
+      return plain(value.get('value') || value.get('token') || value.get('password') || value.get('access_token'));
+    }
+    if (typeof value === 'object') {
+      return plain(value.value || value.token || value.password || value.access_token);
+    }
+    return '';
+  }
+
+  function authEntry(name) {
+    try {
+      const ui = window && window.ui;
+      const authorized = ui && ui.authSelectors && ui.authSelectors.authorized && ui.authSelectors.authorized();
+      const auth = authorized && typeof authorized.get === 'function' ? authorized.get(name) : authorized && authorized[name];
+      return plain(auth);
+    } catch (_err) {
+      return '';
+    }
+  }
+
+  const headers = req.headers || {};
+  const authKey = Object.prototype.hasOwnProperty.call(headers, 'Authorization') ? 'Authorization' : 'authorization';
+  const header = headers[authKey];
+  const needsRepair = header
+    && (typeof header === 'object' || String(header).trim() === 'Bearer [object Object]');
+  if (needsRepair) {
+    const url = String(req.url || '');
+    const preferred = (/\/api\/training\//.test(url) || /\/api\/custom-head\/train/.test(url))
+      ? 'bearerTrainingAuth'
+      : 'bearerMainAuth';
+    const token = authEntry(preferred) || authEntry('bearerMainAuth') || authEntry('bearerTrainingAuth');
+    if (token) {
+      headers[authKey] = `Bearer ${token}`;
+      req.headers = headers;
+    }
+  }
+  return req;
+}
+
 app.use(
   '/api/docs',
   requireDocsAdmin,
@@ -1406,6 +1450,7 @@ app.use(
     customSiteTitle: siteApiTitle(),
     persistAuthorization: false,
     customJsStr: swaggerUiAuthorizeInputScript,
+    requestInterceptor: swaggerUiBearerTokenRequestInterceptor,
   }),
 );
 
