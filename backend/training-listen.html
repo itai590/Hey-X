@@ -237,14 +237,23 @@
     <strong>Train</strong> runs <code>POST /api/custom-head/train</code> on the server (rebuilds the head from <code>custom_clips</code>; can take a while).
     <strong>Clear training inbox</strong> deletes every WAV and JSON under <code>data/training_inbox</code> (not custom clips); you will be asked to confirm.
   </p>
-  <div class="token-row">
+  <form class="token-row" id="admin-token-form" autocomplete="on">
     <label for="token">Admin token</label>
-    <input id="token" type="password" autocomplete="off" placeholder="Bearer HEY_ADMIN_TOKEN" />
+    <input
+      id="token"
+      name="password"
+      type="password"
+      autocomplete="current-password"
+      autocapitalize="off"
+      autocorrect="off"
+      spellcheck="false"
+      placeholder="Bearer HEY_ADMIN_TOKEN"
+    />
     <button type="button" id="load">Load all clips</button>
     <button type="button" id="refresh-catalog">Refresh</button>
     <button type="button" id="train-custom-head" class="btn-accent" title="POST /api/custom-head/train — retrains from custom_clips">Train</button>
     <button type="button" id="clear-inbox" class="btn-danger" title="Deletes all files in data/training_inbox">Clear training inbox</button>
-  </div>
+  </form>
 
   <section>
     <h2>Hear clips by ID</h2>
@@ -269,6 +278,11 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         var t = sessionStorage.getItem('hey-admin-token');
         if (inp && t && typeof t === 'string' && !String(inp.value).trim()) inp.value = t;
       } catch (e) { /* private mode */ }
+    })();
+    (function keepTokenFormNonSubmitting() {
+      var form = document.getElementById('admin-token-form');
+      if (!form) return;
+      form.addEventListener('submit', function (e) { e.preventDefault(); });
     })();
 
     /**

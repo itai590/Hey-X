@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Typography,
-  InputAdornment, IconButton,
+  InputAdornment, IconButton, Box,
 } from '@mui/material';
 import LockIcon from '@mui/icons-material/Lock';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -103,40 +103,66 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
           </Typography>{' '}
           on the Pi. Stored in this browser tab until you close it.
         </Typography>
-        <TextField
-          autoFocus
-          fullWidth
-          variant="outlined"
-          type={showPassword ? 'text' : 'password'}
-          label="Password"
-          value={password}
-          onChange={(e) => { setPassword(e.target.value); setError(''); }}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void submit(); } }}
-          error={!!error}
-          helperText={error || ' '}
-          InputLabelProps={{ shrink: true }}
-          InputProps={{
-            endAdornment: (
-              <InputAdornment position="end">
-                <IconButton
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  onClick={() => setShowPassword((v) => !v)}
-                  onMouseDown={(e) => e.preventDefault()}
-                  edge="end"
-                  sx={{ color: 'grey.400' }}
-                >
-                  {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                </IconButton>
-              </InputAdornment>
-            ),
-          }}
-          sx={{
-            '& .MuiOutlinedInput-root': { bgcolor: 'rgba(255,255,255,0.06)', color: 'white' },
-            '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.2)' },
-            '& .MuiInputLabel-root': { color: 'grey.500' },
-            '& .MuiFormHelperText-root': { color: error ? 'error.main' : 'transparent' },
-          }}
-        />
+        <Box component="form" autoComplete="on" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+          <Box
+            component="input"
+            type="text"
+            name="username"
+            autoComplete="username"
+            value="hey-admin"
+            readOnly
+            tabIndex={-1}
+            aria-hidden="true"
+            sx={{
+              position: 'absolute',
+              width: 1,
+              height: 1,
+              opacity: 0,
+              pointerEvents: 'none',
+            }}
+          />
+          <TextField
+            autoFocus
+            fullWidth
+            variant="outlined"
+            type={showPassword ? 'text' : 'password'}
+            label="Password"
+            name="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => { setPassword(e.target.value); setError(''); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void submit(); } }}
+            error={!!error}
+            helperText={error || ' '}
+            InputLabelProps={{ shrink: true }}
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    onClick={() => setShowPassword((v) => !v)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    edge="end"
+                    sx={{ color: 'grey.400' }}
+                  >
+                    {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            inputProps={{
+              autoCapitalize: 'none',
+              autoCorrect: 'off',
+              spellCheck: false,
+            }}
+            sx={{
+              '& .MuiOutlinedInput-root': { bgcolor: 'rgba(255,255,255,0.06)', color: 'white' },
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.2)' },
+              '& .MuiInputLabel-root': { color: 'grey.500' },
+              '& .MuiFormHelperText-root': { color: error ? 'error.main' : 'transparent' },
+            }}
+          />
+        </Box>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} sx={{ color: 'grey.400' }}>Cancel</Button>
