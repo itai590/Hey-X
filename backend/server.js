@@ -187,7 +187,7 @@ const {
 const ADMIN_TOKEN_RAW = (process.env.HEY_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '').trim();
 /** Optional during rotation — still accepted until removed (narrow window recommended). */
 const ADMIN_TOKEN_PREVIOUS_RAW = (process.env.HEY_ADMIN_TOKEN_PREVIOUS || '').trim();
-/** WAV review + /api/training/* + POST /api/custom-head/train — falls back to HEY_ADMIN_* when unset */
+/** WAV review + /api/training/* + POST /api/custom-head/train — also accepts HEY_ADMIN_* */
 const TRAINING_ADMIN_TOKEN_RAW = (process.env.HEY_TRAINING_ADMIN_TOKEN || '').trim();
 const TRAINING_ADMIN_TOKEN_PREVIOUS_RAW = (process.env.HEY_TRAINING_ADMIN_TOKEN_PREVIOUS || '').trim();
 
@@ -229,6 +229,13 @@ function audienceAuthActive(audience) {
 }
 
 function candidateMatchesAudience(candidate, audience) {
+  if (audience === 'training' && adminCredentialMatches(
+    candidate,
+    ADMIN_TOKEN_RAW,
+    ADMIN_TOKEN_PREVIOUS_RAW,
+  )) {
+    return true;
+  }
   const { primary, previous } = secretsForAudience(audience);
   return adminCredentialMatches(candidate, primary, previous);
 }
@@ -1382,9 +1389,7 @@ function collapseOpenApiSecurityScheme(spec, fromScheme, toScheme) {
   }
 }
 
-if (!TRAINING_ADMIN_TOKEN_RAW) {
-  collapseOpenApiSecurityScheme(openApiSpec, 'bearerTrainingAuth', 'bearerMainAuth');
-}
+collapseOpenApiSecurityScheme(openApiSpec, 'bearerTrainingAuth', 'bearerMainAuth');
 
 app.get('/api/openapi.yaml', requireDocsAdmin, (_req, res) => {
   res.type('text/yaml; charset=utf-8');
@@ -1427,12 +1432,10 @@ function swaggerUiBearerTokenRequestInterceptor(req) {
   const header = headers[authKey];
   const needsRepair = header
     && (typeof header === 'object' || String(header).trim() === 'Bearer [object Object]');
-  if (needsRepair) {
-    const url = String(req.url || '');
-    const preferred = (/\/api\/training\//.test(url) || /\/api\/custom-head\/train/.test(url))
-      ? 'bearerTrainingAuth'
-      : 'bearerMainAuth';
-    const token = authEntry(preferred) || authEntry('bearerMainAuth') || authEntry('bearerTrainingAuth');
+  const url = String(req.url || '');
+  const isTrainingUrl = /\/api\/training\//.test(url) || /\/api\/custom-head\/train/.test(url);
+  if (needsRepair || (isTrainingUrl && !header)) {
+    const token = authEntry('bearerMainAuth');
     if (token) {
       headers[authKey] = `Bearer ${token}`;
       req.headers = headers;

@@ -24,10 +24,6 @@ components:
       type: http
       scheme: bearer
       description: HEY_ADMIN_TOKEN (SPA, docs, messages, config, admin logs, clip upload)
-    bearerTrainingAuth:
-      type: http
-      scheme: bearer
-      description: HEY_TRAINING_ADMIN_TOKEN or HEY_ADMIN_TOKEN if training token unset
 
 paths:
   /api/auth/verify-admin:
@@ -181,7 +177,7 @@ paths:
       tags: [CustomHead]
       summary: Run Python train_custom_head.py
       security:
-        - bearerTrainingAuth: []
+        - bearerMainAuth: []
       responses:
         "200":
           description: Training finished
@@ -235,7 +231,7 @@ paths:
       tags: [Training]
       summary: JSON listing of inbox, mic_temp, and custom clip WAVs
       security:
-        - bearerTrainingAuth: []
+        - bearerMainAuth: []
       responses:
         "200":
           description: Catalog
@@ -247,7 +243,7 @@ paths:
       tags: [Training]
       summary: Stream a mic temp WAV (e.g. clip-1777557607959.wav)
       security:
-        - bearerTrainingAuth: []
+        - bearerMainAuth: []
       parameters:
         - name: filename
           in: path
@@ -273,7 +269,7 @@ paths:
       tags: [Training]
       summary: Stream a WAV from data/custom_clips/{label}
       security:
-        - bearerTrainingAuth: []
+        - bearerMainAuth: []
       parameters:
         - name: label
           in: path
@@ -299,7 +295,7 @@ paths:
       tags: [Training]
       summary: List training inbox clips with metadata
       security:
-        - bearerTrainingAuth: []
+        - bearerMainAuth: []
       responses:
         "200":
           description: Inbox list
@@ -310,7 +306,7 @@ paths:
       summary: Remove all WAV and JSON files from the training inbox directory
       description: Does not delete clips already under custom_clips.
       security:
-        - bearerTrainingAuth: []
+        - bearerMainAuth: []
       responses:
         "200":
           description: Cleared
@@ -333,7 +329,7 @@ paths:
       tags: [Training]
       summary: Stream training inbox WAV by UUID
       security:
-        - bearerTrainingAuth: []
+        - bearerMainAuth: []
       parameters:
         - name: clipId
           in: path
@@ -356,7 +352,7 @@ paths:
       tags: [Training]
       summary: Move clip from inbox to custom_clips for labeling
       security:
-        - bearerTrainingAuth: []
+        - bearerMainAuth: []
       parameters:
         - name: clipId
           in: path
@@ -390,7 +386,7 @@ paths:
       tags: [Training]
       summary: Remove clip from training inbox
       security:
-        - bearerTrainingAuth: []
+        - bearerMainAuth: []
       parameters:
         - name: clipId
           in: path

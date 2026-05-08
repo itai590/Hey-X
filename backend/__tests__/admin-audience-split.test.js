@@ -19,15 +19,16 @@ const authMain = { Authorization: 'Bearer token-main-surface' };
 const authTraining = { Authorization: 'Bearer token-training-surface' };
 
 describe('admin audience split', () => {
-  test('main token mutates messages but not training catalog', async () => {
+  test('main token mutates messages and can also open training catalog', async () => {
     const ok = await request(app)
       .put('/api/messages/a1')
       .set(authMain)
       .send({ text: 'x' });
     expect(ok.status).toBe(200);
 
-    const denyTrain = await request(app).get('/api/training/audio-catalog').set(authMain);
-    expect(denyTrain.status).toBe(401);
+    const allowTrainWithMain = await request(app).get('/api/training/audio-catalog').set(authMain);
+    expect(allowTrainWithMain.status).toBe(200);
+    expect(allowTrainWithMain.body).toHaveProperty('inbox');
 
     const allowTrain = await request(app).get('/api/training/audio-catalog').set(authTraining);
     expect(allowTrain.status).toBe(200);
@@ -46,7 +47,8 @@ describe('admin audience split', () => {
     const yaml = await request(app).get('/api/openapi.yaml').set(authMain);
     expect(yaml.status).toBe(200);
     expect(yaml.text).toContain('bearerMainAuth:');
-    expect(yaml.text).toContain('bearerTrainingAuth:');
+    expect(yaml.text).not.toContain('bearerTrainingAuth:');
+    expect(yaml.text).toContain('- bearerMainAuth: []');
     expect(yaml.text).not.toContain('bearerDocsAuth:');
 
     const denyYaml = await request(app).get('/api/openapi.yaml').set(authTraining);
@@ -59,10 +61,10 @@ describe('admin audience split', () => {
       .send({ password: 'token-main-surface', audience: 'main' });
     expect(m.status).toBe(200);
 
-    const denyMainOnTraining = await request(app)
+    const allowMainOnTraining = await request(app)
       .post('/api/auth/verify-admin')
       .send({ password: 'token-main-surface', audience: 'training' });
-    expect(denyMainOnTraining.status).toBe(401);
+    expect(allowMainOnTraining.status).toBe(200);
 
     const t = await request(app)
       .post('/api/auth/verify-admin')
