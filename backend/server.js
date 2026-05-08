@@ -1358,6 +1358,12 @@ app.get('/api/presence', (_req, res) => {
 // === OpenAPI / Swagger UI ===
 const swaggerUi = require('swagger-ui-express');
 const yaml = require('js-yaml');
+const { collapseSecurityScheme } = require('./openapi-security-schemes');
+const {
+  buildAuthorizeInputScript,
+  createBearerTokenRequestInterceptor,
+} = require('./swagger-ui-bearer');
+
 const openApiPath = path.join(__dirname, 'openapi.yaml');
 let openApiSpec;
 try {
@@ -1377,126 +1383,12 @@ if (openApiSpec && openApiSpec.info) {
   openApiSpec.info.title = siteApiTitle();
 }
 
-function replaceOpenApiSecuritySchemeRefs(node, fromScheme, toScheme) {
-  if (!node || typeof node !== 'object') return;
-  if (Array.isArray(node)) {
-    node.forEach((item) => replaceOpenApiSecuritySchemeRefs(item, fromScheme, toScheme));
-    return;
-  }
-  if (Object.prototype.hasOwnProperty.call(node, fromScheme)) {
-    node[toScheme] = node[fromScheme];
-    delete node[fromScheme];
-  }
-  Object.values(node).forEach((value) => replaceOpenApiSecuritySchemeRefs(value, fromScheme, toScheme));
-}
-
-function collapseOpenApiSecurityScheme(spec, fromScheme, toScheme) {
-  if (!spec || typeof spec !== 'object') return;
-  replaceOpenApiSecuritySchemeRefs(spec.paths, fromScheme, toScheme);
-  if (spec.components && spec.components.securitySchemes) {
-    delete spec.components.securitySchemes[fromScheme];
-  }
-}
-
-collapseOpenApiSecurityScheme(openApiSpec, 'bearerTrainingAuth', 'bearerMainAuth');
+collapseSecurityScheme(openApiSpec, 'bearerTrainingAuth', 'bearerMainAuth');
 
 app.get('/api/openapi.yaml', requireDocsAdmin, (_req, res) => {
   res.type('text/yaml; charset=utf-8');
   res.send(yaml.dump(openApiSpec, { lineWidth: -1 }));
 });
-
-/**
- * Swagger’s authorize modal uses a plain text input by default; align it with normal credential
- * fields so password managers (e.g. Bitwarden) can offer fills like `/api/training/listen` does.
- */
-const swaggerUiAuthorizeInputScript = `
-(function () {
-  var root = document.getElementById('swagger-ui');
-  if (!root) return;
-
-  function cleanToken(value) {
-    return String(value || '').replace(/^Bearer\\s+/i, '').trim();
-  }
-
-  function rememberToken(value) {
-    var token = cleanToken(value);
-    if (token && token !== '[object Object]') {
-      window.__heySwaggerBearerMainToken = token;
-    }
-  }
-
-  function prepareAuthInputs() {
-    root.querySelectorAll('.dialog-ux input, .modal-ux input, [role=dialog] input')
-      .forEach(function (input) {
-        if (!input.dataset.heySwaggerPm) {
-          input.dataset.heySwaggerPm = '1';
-          input.type = 'password';
-          input.setAttribute('autocomplete', 'current-password');
-          input.setAttribute('name', 'hey-admin-bearer-token');
-          input.setAttribute('autocorrect', 'off');
-          input.setAttribute('autocapitalize', 'off');
-          input.setAttribute('spellcheck', 'false');
-          input.addEventListener('input', function () { rememberToken(input.value); });
-          input.addEventListener('change', function () { rememberToken(input.value); });
-        }
-        rememberToken(input.value);
-      });
-  }
-
-  root.addEventListener('click', function (event) {
-    var target = event && event.target;
-    var text = String((target && (target.textContent || target.value)) || '');
-    if (/authorize/i.test(text)) setTimeout(prepareAuthInputs, 0);
-  }, true);
-
-  prepareAuthInputs();
-  new MutationObserver(prepareAuthInputs).observe(root, { childList: true, subtree: true });
-}());
-`;
-
-function swaggerUiBearerTokenRequestInterceptor(req) {
-  function cleanToken(value) {
-    const token = String(value || '').replace(/^Bearer\s+/i, '').trim();
-    return token && token !== '[object Object]' ? token : '';
-  }
-
-  function setHeader(headers, name, value) {
-    if (headers && typeof headers.set === 'function') {
-      const next = headers.set(name, value);
-      return next || headers;
-    }
-    return Object.assign({}, headers || {}, { [name]: value });
-  }
-
-  function deleteHeader(headers, name) {
-    if (headers && typeof headers.delete === 'function') {
-      const next = headers.delete(name);
-      return next || headers;
-    }
-    const next = Object.assign({}, headers || {});
-    delete next[name];
-    return next;
-  }
-
-  function getHeader(headers, name) {
-    if (!headers) return undefined;
-    if (typeof headers.get === 'function') return headers.get(name);
-    return headers[name];
-  }
-
-  const token = cleanToken(typeof window !== 'undefined' && window.__heySwaggerBearerMainToken);
-  const header = getHeader(req.headers, 'Authorization') || getHeader(req.headers, 'authorization');
-  const hasBrokenSwaggerAuth = String(header || '').trim() === 'Bearer [object Object]';
-
-  if (token) {
-    req.headers = setHeader(req.headers, 'Authorization', `Bearer ${token}`);
-  } else if (hasBrokenSwaggerAuth) {
-    req.headers = deleteHeader(req.headers, 'Authorization');
-    req.headers = deleteHeader(req.headers, 'authorization');
-  }
-
-  return req;
-}
 
 app.use(
   '/api/docs',
@@ -1506,8 +1398,8 @@ app.use(
     customCss: '.swagger-ui .topbar { display: none }',
     customSiteTitle: siteApiTitle(),
     persistAuthorization: false,
-    customJsStr: swaggerUiAuthorizeInputScript,
-    requestInterceptor: swaggerUiBearerTokenRequestInterceptor,
+    customJsStr: buildAuthorizeInputScript(),
+    requestInterceptor: createBearerTokenRequestInterceptor(),
   }),
 );
 
