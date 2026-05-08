@@ -1383,6 +1383,7 @@ if (openApiSpec && openApiSpec.info) {
   openApiSpec.info.title = siteApiTitle();
 }
 
+/** Legacy no-op when YAML has only `bearerMainAuth`; keeps forks that still define `bearerTrainingAuth` consistent. */
 collapseSecurityScheme(openApiSpec, 'bearerTrainingAuth', 'bearerMainAuth');
 
 app.get('/api/openapi.yaml', requireDocsAdmin, (_req, res) => {

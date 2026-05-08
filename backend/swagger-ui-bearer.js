@@ -14,40 +14,6 @@ const BROKEN_AUTHORIZATION = 'Bearer [object Object]';
 const INVALID_TOKEN_LITERAL = '[object Object]';
 const BEARER_PREFIX_RE = /^Bearer\s+/i;
 
-function stripBearerPrefix(value) {
-  return String(value ?? '').replace(BEARER_PREFIX_RE, '').trim();
-}
-
-/** Raw modal value → secret string suitable for `Authorization: Bearer …`, or empty if unusable. */
-function normalizedBearerSecret(value) {
-  const t = stripBearerPrefix(value);
-  return t && t !== INVALID_TOKEN_LITERAL ? t : '';
-}
-
-function setHeader(headers, name, value) {
-  if (headers && typeof headers.set === 'function') {
-    const next = headers.set(name, value);
-    return next || headers;
-  }
-  return Object.assign({}, headers || {}, { [name]: value });
-}
-
-function deleteHeader(headers, name) {
-  if (headers && typeof headers.delete === 'function') {
-    const next = headers.delete(name);
-    return next || headers;
-  }
-  const next = Object.assign({}, headers || {});
-  delete next[name];
-  return next;
-}
-
-function getHeader(headers, name) {
-  if (!headers) return undefined;
-  if (typeof headers.get === 'function') return headers.get(name);
-  return headers[name];
-}
-
 /**
  * @param {string} [globalKey]
  * @returns {string} IIFE source for swagger-ui `customJsStr`
@@ -102,27 +68,81 @@ function buildAuthorizeInputScript(globalKey = DEFAULT_GLOBAL_KEY) {
 }
 
 /**
- * @param {string} [globalKey] — must match {@link buildAuthorizeInputScript}
+ * Runs in the browser inside Swagger UI (swagger-ui-express embeds this via `function.toString()`).
+ * It MUST NOT close over module scope — those bindings are not present after serialization.
+ *
+ * @param {string} [globalKey] — must match {@link buildAuthorizeInputScript}; default baked in for embed safety.
  */
 function createBearerTokenRequestInterceptor(globalKey = DEFAULT_GLOBAL_KEY) {
-  return function swaggerUiBearerTokenRequestInterceptor(req) {
-    const win = typeof window !== 'undefined' ? window : undefined;
-    const stored = win && typeof win[globalKey] !== 'undefined' ? win[globalKey] : '';
-    const token = normalizedBearerSecret(stored);
+  // NOTE: Do not reference module-level helpers/constants inside the returned function.
+  return new Function(
+    'req',
+    `
+  var TOKEN_KEY = ${JSON.stringify(globalKey)};
+  var BROKEN_AUTH = ${JSON.stringify(BROKEN_AUTHORIZATION)};
+  var BAD_LITERAL = ${JSON.stringify(INVALID_TOKEN_LITERAL)};
+  var PREFIX = /^Bearer\\s+/i;
 
-    const header =
-      getHeader(req.headers, 'Authorization') || getHeader(req.headers, 'authorization');
-    const hasBrokenSwaggerAuth = String(header || '').trim() === BROKEN_AUTHORIZATION;
-
-    if (token) {
-      req.headers = setHeader(req.headers, 'Authorization', `Bearer ${token}`);
-    } else if (hasBrokenSwaggerAuth) {
-      req.headers = deleteHeader(req.headers, 'Authorization');
-      req.headers = deleteHeader(req.headers, 'authorization');
+  function stripBearer(value) {
+    return String(value == null ? '' : value).replace(PREFIX, '').trim();
+  }
+  function usableSecret(raw) {
+    var t = stripBearer(raw);
+    return t && t !== BAD_LITERAL ? t : '';
+  }
+  function headersToObject(h) {
+    var out = {};
+    if (!h) return out;
+    if (typeof h.forEach === 'function') {
+      h.forEach(function (v, k) { out[k] = v; });
+      return out;
     }
+    if (typeof h === 'object') {
+      for (var k in h) {
+        if (Object.prototype.hasOwnProperty.call(h, k)) out[k] = h[k];
+      }
+    }
+    return out;
+  }
+  function applyAuth(headers, value) {
+    var next = headersToObject(headers);
+    next.Authorization = value;
+    delete next.authorization;
+    return next;
+  }
+  function stripAuth(headers) {
+    var next = headersToObject(headers);
+    delete next.Authorization;
+    delete next.authorization;
+    return next;
+  }
+  function getAuthHeader(headers) {
+    if (!headers) return '';
+    if (typeof headers.get === 'function') {
+      return headers.get('Authorization') || headers.get('authorization') || '';
+    }
+    return headers.Authorization || headers.authorization || '';
+  }
 
-    return req;
-  };
+  var win = typeof window !== 'undefined' ? window : undefined;
+  var stored = win && win[TOKEN_KEY] != null ? win[TOKEN_KEY] : '';
+  var token = usableSecret(stored);
+
+  var rawAuth = getAuthHeader(req.headers);
+  var authTrim = String(rawAuth || '').trim();
+  var broken =
+    authTrim === BROKEN_AUTH ||
+    authTrim.indexOf('[object Object]') !== -1;
+
+  if (token) {
+    req.headers = applyAuth(req.headers, 'Bearer ' + token);
+  } else if (broken) {
+    req.headers = stripAuth(req.headers);
+  }
+
+  return req;
+`,
+  );
 }
 
 module.exports = {

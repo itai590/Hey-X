@@ -1,8 +1,10 @@
 'use strict';
 
 /**
- * Runtime tweak: YAML lists training endpoints under `bearerTrainingAuth`; we serve a single
- * `bearerMainAuth` scheme so Swagger shows one authorize dialog (main admin token).
+ * If the spec still references `bearerTrainingAuth` (e.g. fork or older snapshot), rewrite those
+ * operations to `bearerMainAuth` and drop the extra scheme. Static `openapi.yaml` in this repo
+ * already uses only `bearerMainAuth` — training routes accept HEY_TRAINING_ADMIN_TOKEN or main
+ * token at runtime; Swagger stays one “Authorize” field.
  */
 
 function replaceSecuritySchemeRefs(node, fromScheme, toScheme) {

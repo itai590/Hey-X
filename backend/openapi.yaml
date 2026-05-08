@@ -12,6 +12,7 @@ servers:
 
 tags:
   - name: Auth
+  - name: Admin
   - name: Messages
   - name: Config
   - name: CustomHead
@@ -23,7 +24,13 @@ components:
     bearerMainAuth:
       type: http
       scheme: bearer
-      description: HEY_ADMIN_TOKEN (SPA, docs, messages, config, admin logs, clip upload)
+      description: |
+        Paste **HEY_ADMIN_TOKEN** for routes that use main admin auth (messages, config,
+        GET `/api/admin/logs`, OpenAPI YAML/docs surfaces that still require Bearer when not using LAN trust).
+
+        Routes guarded by **training** admin (`requireTrainingAdmin`) accept **HEY_TRAINING_ADMIN_TOKEN**
+        when set; otherwise they fall back to the same secret as main (**HEY_ADMIN_TOKEN**).
+        Swagger exposes only this scheme so "Authorize" is one field — use whichever secret applies on the server.
 
 paths:
   /api/auth/verify-admin:
@@ -67,6 +74,31 @@ paths:
           description: HTTPS required (`HEY_REQUIRE_HTTPS`); body may include code `HTTPS_REQUIRED`
         "429":
           description: Too many verify-admin attempts or temporary lockout; may include codes `VERIFY_ADMIN_RATE_LIMITED` or `VERIFY_ADMIN_LOCKED`
+
+  /api/admin/logs:
+    get:
+      tags: [Admin]
+      summary: Tail of persisted backend log file (`HEY_LOG_DIR/backend.log`)
+      security:
+        - bearerMainAuth: []
+      parameters:
+        - name: maxBytes
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 4096
+          description: Bytes to read from end of file (clamped server-side)
+      responses:
+        "200":
+          description: JSON with tail text or configured/empty states
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          description: Unauthorized
 
   /api/messages:
     get:
@@ -346,6 +378,37 @@ paths:
           description: Unauthorized
         "404":
           description: Not found
+
+  /api/training/inbox/{clipId}/wav-meta:
+    get:
+      tags: [Training]
+      summary: RMS and capturedAt for a clip (inbox or promoted WAV)
+      security:
+        - bearerMainAuth: []
+      parameters:
+        - name: clipId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Metadata JSON
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clipId: { type: string }
+                  rms: { type: number, nullable: true }
+                  capturedAt: { type: string, nullable: true }
+        "400":
+          description: Invalid clip id
+        "401":
+          description: Unauthorized
+        "404":
+          description: Clip not found or expired
 
   /api/training/inbox/{clipId}/promote:
     post:
