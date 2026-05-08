@@ -27,8 +27,8 @@ components:
       in: header
       name: Authorization
       description: |
-        Type the **full** header value (one line), exactly:
-        `Bearer ` then your secret (space after Bearer).
+        Header value sent as-is. Either form works:
+        **`Bearer `** then your secret (recommended), **or** paste the secret alone (no `Bearer ` prefix).
 
         Use **HEY_ADMIN_TOKEN** for main admin routes. Training routes also accept **HEY_TRAINING_ADMIN_TOKEN**
         when set on the server; otherwise use the main token.

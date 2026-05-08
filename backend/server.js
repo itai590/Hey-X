@@ -251,8 +251,11 @@ function trainingAuthRequiredEffective() {
 function getBearerToken(req) {
   const h = req.headers.authorization;
   if (!h || typeof h !== 'string') return '';
-  const m = /^Bearer\s+(.+)$/i.exec(h.trim());
-  return m ? m[1].trim() : '';
+  const t = h.trim();
+  const m = /^Bearer\s+(.+)$/i.exec(t);
+  if (m) return m[1].trim();
+  // Bare secret (no "Bearer " prefix) — Swagger/apiKey and some clients send only the token.
+  return t;
 }
 
 function clientKeyForGuards(req) {
