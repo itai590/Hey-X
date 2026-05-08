@@ -17,6 +17,37 @@ import { apiFetch } from '../apiClient';
 import { useAdminAuth } from '../AdminAuthProvider';
 
 const DEFAULT_TAIL = 393216;
+const LOG_SCROLL_STORAGE_KEY = 'hey-backend-logs-scroll';
+
+function readSavedLogScroll() {
+  try {
+    const raw = sessionStorage.getItem(LOG_SCROLL_STORAGE_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (
+      typeof o.scrollTop !== 'number'
+      || typeof o.atBottom !== 'boolean'
+      || Number.isNaN(o.scrollTop)
+    ) return null;
+    return o;
+  } catch {
+    return null;
+  }
+}
+
+function writeSavedLogScroll(el) {
+  if (!el || el.scrollHeight <= 0) return;
+  const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+  const atBottom = maxTop <= 4 || maxTop - el.scrollTop <= 4;
+  try {
+    sessionStorage.setItem(
+      LOG_SCROLL_STORAGE_KEY,
+      JSON.stringify({ scrollTop: el.scrollTop, atBottom }),
+    );
+  } catch {
+    /* ignore quota / privacy mode */
+  }
+}
 
 /**
  * @param {object} props
@@ -32,13 +63,21 @@ export default function BackendLogsDialog({ open, onClose }) {
   const [loading, setLoading] = useState(false);
   /** After 401 + login, rerun fetch once while dialog stays open */
   const needRetryAfterAuthRef = useRef(false);
-  /** Scrollable log viewport — keep newest lines visible (tail-first UX) */
+  /** Scrollable log viewport — tail-first by default; user scroll persists in sessionStorage */
   const logScrollRef = useRef(null);
+  const scrollPersistRafRef = useRef(null);
 
-  const scrollLogToBottom = useCallback(() => {
+  const applySavedScrollOrBottom = useCallback(() => {
     const el = logScrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    const saved = readSavedLogScroll();
+    const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    if (saved && !saved.atBottom && maxTop > 0) {
+      el.scrollTop = Math.min(Math.max(0, saved.scrollTop), maxTop);
+    } else {
+      el.scrollTop = el.scrollHeight;
+    }
+    writeSavedLogScroll(el);
   }, []);
 
   const load = useCallback(async () => {
@@ -81,6 +120,29 @@ export default function BackendLogsDialog({ open, onClose }) {
     }
   }, [open, openAdminDialog]);
 
+  /** Persist viewport scroll across refresh, dialog close/open, and fetches unless user pinned away from tail */
+  useEffect(() => {
+    const el = logScrollRef.current;
+    if (!open || !el) return undefined;
+    const onScroll = () => {
+      if (scrollPersistRafRef.current != null) {
+        cancelAnimationFrame(scrollPersistRafRef.current);
+      }
+      scrollPersistRafRef.current = requestAnimationFrame(() => {
+        scrollPersistRafRef.current = null;
+        writeSavedLogScroll(el);
+      });
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      if (scrollPersistRafRef.current != null) {
+        cancelAnimationFrame(scrollPersistRafRef.current);
+        scrollPersistRafRef.current = null;
+      }
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) {
       needRetryAfterAuthRef.current = false;
@@ -102,10 +164,10 @@ export default function BackendLogsDialog({ open, onClose }) {
   useLayoutEffect(() => {
     if (!open || loading) return;
     const id = requestAnimationFrame(() => {
-      scrollLogToBottom();
+      applySavedScrollOrBottom();
     });
     return () => cancelAnimationFrame(id);
-  }, [open, loading, text, scrollLogToBottom]);
+  }, [open, loading, text, applySavedScrollOrBottom]);
 
   return (
     <Dialog
@@ -115,7 +177,9 @@ export default function BackendLogsDialog({ open, onClose }) {
       maxWidth="md"
       TransitionProps={{
         onEntered: () => {
-          requestAnimationFrame(() => scrollLogToBottom());
+          if (!loading) {
+            requestAnimationFrame(() => applySavedScrollOrBottom());
+          }
         },
       }}
       slotProps={{

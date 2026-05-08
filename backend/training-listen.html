@@ -242,12 +242,9 @@
       word-break: break-word;
       opacity: 0.92;
     }
+    /* Fully hidden when collapsed — line-clamp breaks with pre-wrap on desktop WebKit/Firefox */
     .log-line.is-collapsed {
-      display: -webkit-box;
-      line-clamp: 2;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
+      display: none;
     }
     .log-toggle {
       margin-top: 0.4rem;
@@ -361,7 +358,7 @@
   <h1 id="training-listen-title">Hey — WAV review</h1>
   <p class="hint">  
     Press <strong>play</strong> on a row to load that clip (loads one at a time).
-    Use <strong>Refresh</strong> to re-fetch training inbox, mic temp, and custom clip lists without reloading the page.
+    Use <strong>Load clips</strong> to re-fetch training inbox, mic temp, and custom clip lists without reloading the page.
     <strong>Train</strong> runs <code>POST /api/custom-head/train</code> on the server (rebuilds the head from <code>custom_clips</code>; can take a while).
     <strong>Clear training inbox</strong> deletes every WAV and JSON under <code>data/training_inbox</code> (not custom clips); you will be asked to confirm.
   </p>
@@ -381,7 +378,6 @@
     <span class="training-auth-caption" id="training-auth-caption"></span>
     <div class="training-toolbar-actions">
       <button type="button" id="load">Load all clips</button>
-      <button type="button" id="refresh-catalog">Refresh</button>
       <button type="button" id="train-custom-head" class="btn-accent" title="POST /api/custom-head/train — retrains from custom_clips">Train</button>
       <button type="button" id="clear-inbox" class="btn-danger" title="Deletes all files in data/training_inbox">Clear training inbox</button>
     </div>
@@ -478,7 +474,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
 
     function applyToolbarButtonState() {
       var blocked = catalogActionsBusy || !trainingActionsAllowed();
-      ['load', 'refresh-catalog', 'train-custom-head', 'clear-inbox'].forEach(function (id) {
+      ['load', 'train-custom-head', 'clear-inbox'].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) el.disabled = !!blocked;
       });
@@ -845,28 +841,18 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
 
       if (classifyLogLine && typeof classifyLogLine === 'string') {
         var ll = document.createElement('div');
-        ll.className = 'log-line';
+        ll.className = 'log-line is-collapsed';
         ll.textContent = classifyLogLine;
         wrap.appendChild(ll);
-        var shouldCollapseLog =
-          window.matchMedia('(max-width: 600px)').matches
-          && (
-            classifyLogLine.length > 110
-            || classifyLogLine.indexOf('| top5:') !== -1
-            || classifyLogLine.indexOf('rms=') === 0
-          );
-        if (shouldCollapseLog) {
-          ll.classList.add('is-collapsed');
-          var toggle = document.createElement('button');
-          toggle.type = 'button';
-          toggle.className = 'log-toggle';
-          toggle.textContent = 'Expand details';
-          toggle.onclick = function () {
-            var collapsed = ll.classList.toggle('is-collapsed');
-            toggle.textContent = collapsed ? 'Expand details' : 'Collapse';
-          };
-          wrap.appendChild(toggle);
-        }
+        var toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'log-toggle';
+        toggle.textContent = 'Expand details';
+        toggle.onclick = function () {
+          var collapsed = ll.classList.toggle('is-collapsed');
+          toggle.textContent = collapsed ? 'Expand details' : 'Collapse';
+        };
+        wrap.appendChild(toggle);
       }
 
       container.appendChild(wrap);
@@ -951,7 +937,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         .then(function (data) {
           status.textContent = '';
           if (data.adminRequired && !getTrainingSessionToken()) {
-            status.textContent = 'Tip: tap the lock to sign in, then Refresh.';
+            status.textContent = 'Tip: tap the lock to sign in, then tap Load all clips.';
           }
 
           var inboxRows = data.inbox || [];
@@ -1034,7 +1020,6 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     }
 
     document.getElementById('load').onclick = loadAudioCatalog;
-    document.getElementById('refresh-catalog').onclick = loadAudioCatalog;
 
     document.getElementById('train-custom-head').onclick = function () {
       var status = document.getElementById('status');
