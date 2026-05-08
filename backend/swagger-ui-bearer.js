@@ -26,6 +26,8 @@ function buildAuthorizeInputScript(globalKey = DEFAULT_GLOBAL_KEY) {
   var root = document.getElementById('swagger-ui');
   if (!root) return;
 
+  var BEARER_START = /^Bearer\\s/i;
+
   function cleanToken(value) {
     return String(value || '').replace(${BEARER_PREFIX_RE}, '').trim();
   }
@@ -34,6 +36,16 @@ function buildAuthorizeInputScript(globalKey = DEFAULT_GLOBAL_KEY) {
     var token = cleanToken(value);
     if (token && token !== ${JSON.stringify(INVALID_TOKEN_LITERAL)}) {
       window[TOKEN_KEY] = token;
+    }
+  }
+
+  /** If user pasted only the secret, prepend Bearer + space so Swagger sends a proper header. */
+  function injectBearerPrefix(input) {
+    if (!input || typeof input.value !== 'string') return;
+    var v = input.value.trim();
+    if (!v) return;
+    if (!BEARER_START.test(v)) {
+      input.value = 'Bearer ' + v;
     }
   }
 
@@ -60,8 +72,16 @@ function buildAuthorizeInputScript(globalKey = DEFAULT_GLOBAL_KEY) {
         input.setAttribute('autocapitalize', 'off');
         input.setAttribute('spellcheck', 'false');
         input.addEventListener('input', function () { rememberToken(input.value); });
-        input.addEventListener('change', function () { rememberToken(input.value); });
+        input.addEventListener('change', function () {
+          injectBearerPrefix(input);
+          rememberToken(input.value);
+        });
+        input.addEventListener('blur', function () {
+          injectBearerPrefix(input);
+          rememberToken(input.value);
+        });
       }
+      injectBearerPrefix(input);
       rememberToken(input.value);
     });
   }

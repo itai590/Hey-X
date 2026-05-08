@@ -2,13 +2,6 @@ openapi: 3.0.3
 info:
   # Overwritten at startup by server.js (`siteApiTitle()`); static default matches empty DOG_NAME.
   title: Hey API
-  description: |
-    Backend for bark detection, SQLite messages, and WAV training workflows.
-
-    **Authenticated requests** must send:
-    `Authorization: Bearer <token>`
-    where `<token>` is `HEY_ADMIN_TOKEN`, or for training-only endpoints `HEY_TRAINING_ADMIN_TOKEN` when that env is set (otherwise use the main token).
-    The server also accepts the raw token without the `Bearer ` prefix for compatibility.
   version: 1.0.0
 
 servers:
@@ -31,7 +24,6 @@ components:
       type: apiKey
       in: header
       name: Authorization
-
 paths:
   /api/auth/verify-admin:
     post:
