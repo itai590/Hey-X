@@ -11,14 +11,12 @@ process.env.HEY_DB_PATH = path.join(tmpDir, 'split.db');
 process.env.HEY_CONFIG_PATH = path.join(tmpDir, 'config.json');
 process.env.HEY_ADMIN_TOKEN = 'token-main-surface';
 process.env.HEY_TRAINING_ADMIN_TOKEN = 'token-training-surface';
-process.env.HEY_DOCS_ADMIN_TOKEN = 'token-docs-surface';
 
 const request = require('supertest');
 const app = require('../server');
 
 const authMain = { Authorization: 'Bearer token-main-surface' };
 const authTraining = { Authorization: 'Bearer token-training-surface' };
-const authDocs = { Authorization: 'Bearer token-docs-surface' };
 
 describe('admin audience split', () => {
   test('main token mutates messages but not training catalog', async () => {
@@ -44,18 +42,18 @@ describe('admin audience split', () => {
     expect(denied.status).toBe(401);
   });
 
-  test('docs token opens OpenAPI but not messages', async () => {
-    const yaml = await request(app).get('/api/openapi.yaml').set(authDocs);
+  test('main token opens OpenAPI while training token does not', async () => {
+    const yaml = await request(app).get('/api/openapi.yaml').set(authMain);
     expect(yaml.status).toBe(200);
+    expect(yaml.text).toContain('bearerMainAuth:');
+    expect(yaml.text).toContain('bearerTrainingAuth:');
+    expect(yaml.text).not.toContain('bearerDocsAuth:');
 
-    const denyMsg = await request(app)
-      .delete('/api/messages')
-      .set(authDocs)
-      .send({ ids: ['a1'] });
-    expect(denyMsg.status).toBe(401);
+    const denyYaml = await request(app).get('/api/openapi.yaml').set(authTraining);
+    expect(denyYaml.status).toBe(401);
   });
 
-  test('verify-admin audience main vs training vs docs', async () => {
+  test('verify-admin audience main vs training', async () => {
     const m = await request(app)
       .post('/api/auth/verify-admin')
       .send({ password: 'token-main-surface', audience: 'main' });
@@ -70,10 +68,5 @@ describe('admin audience split', () => {
       .post('/api/auth/verify-admin')
       .send({ password: 'token-training-surface', audience: 'training' });
     expect(t.status).toBe(200);
-
-    const d = await request(app)
-      .post('/api/auth/verify-admin')
-      .send({ password: 'token-docs-surface', audience: 'docs' });
-    expect(d.status).toBe(200);
   });
 });

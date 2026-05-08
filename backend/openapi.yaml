@@ -23,15 +23,11 @@ components:
     bearerMainAuth:
       type: http
       scheme: bearer
-      description: HEY_ADMIN_TOKEN (SPA — messages, config, admin logs)
+      description: HEY_ADMIN_TOKEN (SPA, docs, messages, config, admin logs, clip upload)
     bearerTrainingAuth:
       type: http
       scheme: bearer
       description: HEY_TRAINING_ADMIN_TOKEN or HEY_ADMIN_TOKEN if training token unset
-    bearerDocsAuth:
-      type: http
-      scheme: bearer
-      description: HEY_DOCS_ADMIN_TOKEN or HEY_ADMIN_TOKEN if docs token unset (Swagger + clip upload)
 
 paths:
   /api/auth/verify-admin:
@@ -50,9 +46,9 @@ paths:
                   description: Secret for the chosen audience (alternative to Bearer header on this request)
                 audience:
                   type: string
-                  enum: [main, training, docs]
+                  enum: [main, training]
                   default: main
-                  description: Which env secret to check (main SPA / training WAV API / docs+clip upload)
+                  description: Which env secret to check (main SPA/docs/clip upload or training WAV API)
       responses:
         "200":
           description: OK
@@ -64,7 +60,7 @@ paths:
                   ok: { type: boolean }
                   audience:
                     type: string
-                    enum: [main, training, docs]
+                    enum: [main, training]
                     description: Confirms which credential was verified
                   authDisabled:
                     type: boolean
@@ -199,7 +195,7 @@ paths:
       tags: [CustomHead]
       summary: Upload a WAV clip into custom_clips/{label}
       security:
-        - bearerDocsAuth: []
+        - bearerMainAuth: []
       parameters:
         - name: label
           in: path

@@ -183,24 +183,20 @@ const {
 } = require('./admin-security-phase1');
 
 // === Admin tokens (Bearer) — optional split per surface ===
-// Main SPA + messages/config/logs + custom-head when not docs-only/training-only split
+// Main SPA + messages/config/logs + docs/openapi + clip upload.
 const ADMIN_TOKEN_RAW = (process.env.HEY_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '').trim();
 /** Optional during rotation — still accepted until removed (narrow window recommended). */
 const ADMIN_TOKEN_PREVIOUS_RAW = (process.env.HEY_ADMIN_TOKEN_PREVIOUS || '').trim();
 /** WAV review + /api/training/* + POST /api/custom-head/train — falls back to HEY_ADMIN_* when unset */
 const TRAINING_ADMIN_TOKEN_RAW = (process.env.HEY_TRAINING_ADMIN_TOKEN || '').trim();
 const TRAINING_ADMIN_TOKEN_PREVIOUS_RAW = (process.env.HEY_TRAINING_ADMIN_TOKEN_PREVIOUS || '').trim();
-/** Swagger /api/docs + GET /api/openapi.yaml + PUT /api/custom-head/clip — falls back to HEY_ADMIN_* when unset */
-const DOCS_ADMIN_TOKEN_RAW = (process.env.HEY_DOCS_ADMIN_TOKEN || '').trim();
-const DOCS_ADMIN_TOKEN_PREVIOUS_RAW = (process.env.HEY_DOCS_ADMIN_TOKEN_PREVIOUS || '').trim();
 
 const MAIN_ADMIN_ACTIVE = ADMIN_TOKEN_RAW.length > 0;
 /** Any admin surface requires auth (used for startup warnings / training catalog flag). */
 const ANY_ADMIN_ACTIVE = MAIN_ADMIN_ACTIVE
-  || (TRAINING_ADMIN_TOKEN_RAW.length > 0)
-  || (DOCS_ADMIN_TOKEN_RAW.length > 0);
+  || (TRAINING_ADMIN_TOKEN_RAW.length > 0);
 
-/** When true, TCP clients on private IPv4 LAN may use /api/docs, OpenAPI YAML, clip upload without Bearer (see shouldBypassDocsAdminBearerForTrustedLan). */
+/** When true, TCP clients on private IPv4 LAN may use /api/docs, OpenAPI YAML, clip upload without Bearer. */
 const HEY_DOCS_ADMIN_TRUST_LAN = parseBoolEnv(process.env.HEY_DOCS_ADMIN_TRUST_LAN, false);
 
 /** @returns {{ primary: string, previous: string }} */
@@ -216,24 +212,14 @@ function getTrainingAdminSecrets() {
   return getMainAdminSecrets();
 }
 
-/** @returns {{ primary: string, previous: string }} */
-function getDocsAdminSecrets() {
-  if (DOCS_ADMIN_TOKEN_RAW.length > 0) {
-    return { primary: DOCS_ADMIN_TOKEN_RAW, previous: DOCS_ADMIN_TOKEN_PREVIOUS_RAW };
-  }
-  return getMainAdminSecrets();
-}
-
 function verifyAudienceFromBody(body) {
   const raw = body && typeof body.audience === 'string' ? body.audience.trim().toLowerCase() : '';
   if (raw === 'training') return 'training';
-  if (raw === 'docs') return 'docs';
   return 'main';
 }
 
 function secretsForAudience(audience) {
   if (audience === 'training') return getTrainingAdminSecrets();
-  if (audience === 'docs') return getDocsAdminSecrets();
   return getMainAdminSecrets();
 }
 
@@ -308,20 +294,13 @@ function requireTrainingAdmin(req, res, next) {
 }
 
 function requireDocsAdmin(req, res, next) {
-  const secrets = getDocsAdminSecrets();
-  if (!secrets.primary.length) return next();
   if (shouldBypassDocsAdminBearerForTrustedLan(req, HEY_DOCS_ADMIN_TRUST_LAN)) return next();
-  const sent = getBearerToken(req);
-  if (!sent || !candidateMatchesAudience(sent, 'docs')) {
-    res.set('WWW-Authenticate', 'Bearer realm="hey-docs-admin"');
-    return res.status(401).json({ error: 'Unauthorized', needsAdminAuth: true });
-  }
-  next();
+  return requireMainAdmin(req, res, next);
 }
 
 if (!ANY_ADMIN_ACTIVE) {
   console.warn(
-    '[security] No admin tokens set — anyone who can reach this server can use mutating APIs and training/docs where applicable. Set HEY_ADMIN_TOKEN (and optionally HEY_TRAINING_ADMIN_TOKEN / HEY_DOCS_ADMIN_TOKEN).',
+    '[security] No admin tokens set — anyone who can reach this server can use mutating APIs and training/docs where applicable. Set HEY_ADMIN_TOKEN (and optionally HEY_TRAINING_ADMIN_TOKEN).',
   );
 } else {
   if (MAIN_ADMIN_ACTIVE) {
@@ -336,15 +315,9 @@ if (!ANY_ADMIN_ACTIVE) {
       console.log('[security] HEY_TRAINING_ADMIN_TOKEN_PREVIOUS is set — training rotation overlap');
     }
   }
-  if (DOCS_ADMIN_TOKEN_RAW.length > 0) {
-    console.log('[security] HEY_DOCS_ADMIN_TOKEN is set — /api/docs + OpenAPI YAML + custom-head clip upload use a separate Bearer');
-    if (DOCS_ADMIN_TOKEN_PREVIOUS_RAW) {
-      console.log('[security] HEY_DOCS_ADMIN_TOKEN_PREVIOUS is set — docs rotation overlap');
-    }
-  }
-  if (HEY_DOCS_ADMIN_TRUST_LAN && audienceAuthActive('docs')) {
+  if (HEY_DOCS_ADMIN_TRUST_LAN && audienceAuthActive('main')) {
     console.log(
-      '[security] HEY_DOCS_ADMIN_TRUST_LAN=true — RFC1918/APIPA IPv4 TCP peers may access docs surfaces without Bearer (same socket rule as HTTPS LAN trust)',
+      '[security] HEY_DOCS_ADMIN_TRUST_LAN=true — RFC1918/APIPA IPv4 TCP peers may access docs surfaces without Bearer',
     );
   }
 }
@@ -616,7 +589,7 @@ app.use(express.json({ limit: '16kb' }));
 
 /**
  * Public: lets a UI check a typed token before storing it (wrong token → 401 + message).
- * Body `audience`: `main` (default, SPA lock), `training` (WAV review page), `docs` (Swagger sanity check).
+ * Body `audience`: `main` (default, SPA/docs), `training` (WAV review page).
  */
 app.post('/api/auth/verify-admin', throttleVerifyAdmin, (req, res) => {
   const audience = verifyAudienceFromBody(req.body);
@@ -1386,6 +1359,31 @@ try {
 }
 if (openApiSpec && openApiSpec.info) {
   openApiSpec.info.title = siteApiTitle();
+}
+
+function replaceOpenApiSecuritySchemeRefs(node, fromScheme, toScheme) {
+  if (!node || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    node.forEach((item) => replaceOpenApiSecuritySchemeRefs(item, fromScheme, toScheme));
+    return;
+  }
+  if (Object.prototype.hasOwnProperty.call(node, fromScheme)) {
+    node[toScheme] = node[fromScheme];
+    delete node[fromScheme];
+  }
+  Object.values(node).forEach((value) => replaceOpenApiSecuritySchemeRefs(value, fromScheme, toScheme));
+}
+
+function collapseOpenApiSecurityScheme(spec, fromScheme, toScheme) {
+  if (!spec || typeof spec !== 'object') return;
+  replaceOpenApiSecuritySchemeRefs(spec.paths, fromScheme, toScheme);
+  if (spec.components && spec.components.securitySchemes) {
+    delete spec.components.securitySchemes[fromScheme];
+  }
+}
+
+if (!TRAINING_ADMIN_TOKEN_RAW) {
+  collapseOpenApiSecurityScheme(openApiSpec, 'bearerTrainingAuth', 'bearerMainAuth');
 }
 
 app.get('/api/openapi.yaml', requireDocsAdmin, (_req, res) => {

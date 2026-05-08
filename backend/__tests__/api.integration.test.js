@@ -225,6 +225,9 @@ describe('OpenAPI', () => {
     expect(authed.headers['content-type'] || '').toMatch(/yaml/);
     expect(authed.text).toContain('openapi:');
     expect(authed.text).toMatch(/title:\s*Hey(\s+[^\n]+)?\s+API/);
+    expect(authed.text).toContain('bearerMainAuth:');
+    expect(authed.text).not.toContain('bearerTrainingAuth:');
+    expect(authed.text).not.toContain('bearerDocsAuth:');
   });
 
   test('GET /api/docs requires admin', async () => {
