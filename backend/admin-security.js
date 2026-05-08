@@ -1,5 +1,5 @@
 /**
- * Phase-1 admin hardening: HTTPS gate, verify-admin throttle + lockout, mutation audit helpers.
+ * Admin hardening: HTTPS gate, verify-admin throttle + lockout, mutation audit helpers.
  *
  * All state is in-memory (single process); lost on restart.
  */
@@ -188,15 +188,6 @@ function adminCredentialMatches(candidate, primaryRaw, previousRaw) {
   return false;
 }
 
-/**
- * When enabled, docs routes may skip Bearer for TCP peers on private IPv4 LAN (same rules as
- * `HEY_REQUIRE_HTTPS_TRUST_LAN` — RFC1918 + APIPA; uses socket address only).
- */
-function shouldBypassDocsAdminBearerForTrustedLan(req, trustLanEnabled) {
-  if (!trustLanEnabled) return false;
-  return isPrivateLanIpv4Address(directTcpRemoteAddress(req));
-}
-
 module.exports = {
   parseBoolEnv,
   parsePositiveInt,
@@ -209,5 +200,4 @@ module.exports = {
   auditMutatingRoute,
   timingSafeEqualStrings,
   adminCredentialMatches,
-  shouldBypassDocsAdminBearerForTrustedLan,
 };

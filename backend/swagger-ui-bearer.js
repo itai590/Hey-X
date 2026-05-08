@@ -5,8 +5,9 @@
  * `Authorization: Bearer [object Object]`. We persist the raw secret from the authorize
  * modal on `window` and normalize outgoing requests via swagger-ui's requestInterceptor.
  *
+ * Paste **`HEY_ADMIN_TOKEN`** (same secret as the main app lock and `/api/training/listen`).
  * The authorize modal uses a plain text input by default; we coerce inputs to type=password and
- * autocomplete so password managers behave like on `/api/training/listen`.
+ * autocomplete like the WAV review page.
  */
 
 const DEFAULT_GLOBAL_KEY = '__heySwaggerBearerMainToken';

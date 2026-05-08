@@ -142,17 +142,7 @@ If your site is reachable from the internet, set a secret on the **backend** so 
 When the variable is **set**, mutating routes require header `Authorization: Bearer <exact same string>`
 When it is **unset**, the server logs a warning and those routes stay open (convenient for local LAN dev).
 
-In the web UI, use the **lock** icon, enter the same value as `HEY_ADMIN_TOKEN` once per browser tab; it is kept in **session storage** (`hey-admin-token`) until you close the tab. The dialog checks the token with `POST /api/auth/verify-admin` (body `audience: "main"`) first — a wrong value shows an error and nothing is saved. Reads (`GET /api/config`, bark list, presence) stay unauthenticated so the dashboard still loads.
-
-**Optional: split training secret** — set this to use a **different** Bearer value for training routes (when unset, training falls back to `HEY_ADMIN_TOKEN` / `HEY_ADMIN_TOKEN_PREVIOUS`, so a single password still works):
-
-| Env | Protects |
-| --- | --- |
-| `HEY_ADMIN_TOKEN` (+ optional `HEY_ADMIN_TOKEN_PREVIOUS`) | Main SPA lock, Swagger/OpenAPI (`/api/docs/`, `GET /api/openapi.yaml`), `PUT/DELETE` messages, `PUT /api/config`, backend log tail (`GET /api/admin/logs`), and `PUT /api/custom-head/clip/:label`. |
-| `HEY_TRAINING_ADMIN_TOKEN` (+ optional `…_PREVIOUS`) | All `GET/POST/DELETE` under `/api/training/*`, and `POST /api/custom-head/train`. On `/api/training/listen`, tap the **lock** to open the training login pop-up; the password is stored per tab as `hey-training-admin-token` (not the SPA key). |
-| `HEY_DOCS_ADMIN_TRUST_LAN` | Optional. If `true`, direct private-LAN TCP clients may access Swagger/OpenAPI and clip upload without Bearer; public/proxied clients still need `HEY_ADMIN_TOKEN`. |
-
-`POST /api/auth/verify-admin` accepts optional `audience`: `main` (default) or `training` so each UI can check the right secret before saving it client-side.
+In the web UI, use the **lock** icon, enter the same value as `HEY_ADMIN_TOKEN` once per browser tab; it is kept in **session storage** until you close the tab. The dialog checks the token with `POST /api/auth/verify-admin` first — a wrong value shows an error and nothing is saved. Reads (`GET /api/config`, bark list, presence) stay unauthenticated so the dashboard still loads.
 
 ### Tuning
 
@@ -166,9 +156,7 @@ Use **Detection Settings** in the web app (gear icon) or edit `backend/config.js
 | `DETECTION_THRESHOLD`             | How many consecutive barks in a row before the app records/sends a grouped event (default **1**).                                                                                                                                                                                   |
 | `AGGREGATION_TIMER`               | How long a grouped bark “session” stays open; also used in the web UI to decide when the last RMS sample is “recent” for the status ring (seconds, default 60, range 10–300).                                                                                                       |
 | `MIC_MUTED`                       | If `true`, the microphone is off: **no** recording, **no** WAV files, **no** calls to the Python classifier. Default `false`. Changing it applies immediately and is persisted in `config.json`.                                                                                    |
-| `HEY_ADMIN_TOKEN` / `ADMIN_TOKEN` | **Backend env only**. Main SPA admin, Swagger/OpenAPI, messages/config/logs, and clip upload; optionally `HEY_TRAINING_ADMIN_TOKEN` splits training routes (see **Admin password**). |
-| `HEY_TRAINING_ADMIN_TOKEN` | Optional. Training WAV API + `POST /api/custom-head/train`; falls back to main token when unset. |
-| `HEY_DOCS_ADMIN_TRUST_LAN` | Optional. Set `true` to allow direct LAN docs access without Bearer. |
+| `HEY_ADMIN_TOKEN` / `ADMIN_TOKEN` | **Backend env only**. SPA lock, Swagger/OpenAPI, messages/config/logs, clip upload, training WAV API, and `POST /api/custom-head/train`. |
 | `CUSTOM_HEAD_ENABLED`             | If `true` **and** `backend/data/custom_model/head.json` exists, apply the trained embedding head. Default `false`.                                                                                                                                                                  |
 | `CUSTOM_HEAD_THRESHOLD`           | 0–1, probability threshold for the custom head (default **0.55**). Final bark if YAMNet says bark **or** custom probability ≥ this value.                                                                                                                                           |
 | `TRAINING_INBOX_ENABLED`          | If `true` (default), each classified event copies the WAV + metadata to `data/training_inbox/` and logs `clip_id=<UUID>` so you can promote it into training sets later. Set `false` on storage-constrained hosts if you only upload clips manually.                                |

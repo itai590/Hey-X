@@ -3,8 +3,7 @@ const {
   createHttpsMiddleware,
   createVerifyAdminGuard,
   isPrivateLanIpv4Address,
-  shouldBypassDocsAdminBearerForTrustedLan,
-} = require('../admin-security-phase1');
+} = require('../admin-security');
 
 describe('adminCredentialMatches', () => {
   test('matches primary token', () => {
@@ -33,29 +32,6 @@ describe('isPrivateLanIpv4Address', () => {
     expect(isPrivateLanIpv4Address('172.32.1.1')).toBe(false);
     expect(isPrivateLanIpv4Address('fe80::1')).toBe(false);
     expect(isPrivateLanIpv4Address('')).toBe(false);
-  });
-});
-
-describe('shouldBypassDocsAdminBearerForTrustedLan', () => {
-  test('off by default / when trust disabled', () => {
-    const req = { socket: { remoteAddress: '192.168.1.5' } };
-    expect(shouldBypassDocsAdminBearerForTrustedLan(req, false)).toBe(false);
-  });
-  test('allows bypass for private LAN TCP peer when trust on', () => {
-    const req = { socket: { remoteAddress: '192.168.148.114' } };
-    expect(shouldBypassDocsAdminBearerForTrustedLan(req, true)).toBe(true);
-  });
-  test('rejects public TCP peer even when trust on', () => {
-    const req = { socket: { remoteAddress: '198.51.100.22' } };
-    expect(shouldBypassDocsAdminBearerForTrustedLan(req, true)).toBe(false);
-  });
-  test('uses socket only (not spoofed headers)', () => {
-    const req = {
-      ip: '192.168.9.9',
-      headers: { 'x-forwarded-for': '192.168.9.9' },
-      socket: { remoteAddress: '198.51.100.22' },
-    };
-    expect(shouldBypassDocsAdminBearerForTrustedLan(req, true)).toBe(false);
   });
 });
 

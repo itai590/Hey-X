@@ -2,6 +2,10 @@ openapi: 3.0.3
 info:
   # Overwritten at startup by server.js (`siteApiTitle()`); static default matches empty DOG_NAME.
   title: Hey API
+  description: |
+    Bark detection, SQLite messages, and WAV training workflows.
+
+    Protected APIs use **`Authorization: Bearer <HEY_ADMIN_TOKEN>`** (or bare token; server accepts both).
   version: 1.0.0
 
 servers:
@@ -24,6 +28,9 @@ components:
       type: apiKey
       in: header
       name: Authorization
+      description: |
+        **`Authorization: Bearer <secret>`** or paste the secret only (Swagger prepends `Bearer `).
+
 paths:
   /api/auth/verify-admin:
     post:
@@ -40,14 +47,14 @@ paths:
               properties:
                 password:
                   type: string
-                  description: Secret for the chosen audience (alternative to Bearer header on this request)
+                  description: Same value as **`HEY_ADMIN_TOKEN`** (alternative to Bearer on this request)
                 audience:
                   type: string
-                  enum: [main, training]
+                  enum: [main]
                   default: main
-                  description: Which env secret to check (main SPA/docs/clip upload or training WAV API)
+                  description: Optional; ignored — use **`HEY_ADMIN_TOKEN`** only.
             example:
-              audience: main
+              password: "<paste HEY_ADMIN_TOKEN>"
       responses:
         "200":
           description: OK
@@ -59,11 +66,11 @@ paths:
                   ok: { type: boolean }
                   audience:
                     type: string
-                    enum: [main, training]
-                    description: Confirms which credential was verified
+                    enum: [main]
+                    description: Always `main` when auth is enabled
                   authDisabled:
                     type: boolean
-                    description: Present when no secret applies for that audience
+                    description: Present when `HEY_ADMIN_TOKEN` is unset
         "401":
           description: Invalid credentials
         "403":

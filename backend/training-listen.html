@@ -386,7 +386,7 @@
     <strong>Clear training inbox</strong> deletes every WAV and JSON under <code>data/training_inbox</code> (not custom clips); you will be asked to confirm.
   </p>
   <div class="training-toolbar" id="training-toolbar">
-    <button type="button" class="lock-btn" id="training-lock-btn" aria-label="Training sign-in" title="Training sign-in or sign-out">
+    <button type="button" class="lock-btn" id="training-lock-btn" aria-label="Admin sign-in" title="Sign in with HEY_ADMIN_TOKEN or sign out">
       <svg id="training-lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <g id="training-icon-locked">
           <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -417,7 +417,7 @@
       tabindex="-1"
     >
       <div class="training-login-inner">
-        <h2 id="training-login-title">Training login</h2>
+        <h2 id="training-login-title">Admin sign-in</h2>
         <!-- Real <form> + standard name/autocomplete so password managers (e.g. Bitwarden) can detect and fill fields. -->
         <form id="training-login-form" method="post" action="#" autocomplete="on" novalidate>
           <div class="training-login-field">
@@ -425,7 +425,7 @@
             <input id="training-modal-username" name="username" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" />
           </div>
           <div class="training-login-field">
-            <label for="training-modal-password">Password</label>
+            <label for="training-modal-password">HEY_ADMIN_TOKEN</label>
             <input id="training-modal-password" name="password" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
           </div>
           <div class="training-login-error" id="training-login-error" role="alert"></div>
@@ -477,31 +477,32 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       return pre + q;
     }
 
-    var HEY_TRAINING_SESSION_KEY = 'hey-training-admin-token';
-    /** null unknown, true requires Bearer, false server has no training password */
-    var serverTrainingPasswordRequired = null;
+    /** Same key as the main SPA (`frontend/src/authStorage.js`) — one `HEY_ADMIN_TOKEN` per tab. */
+    var HEY_ADMIN_SESSION_STORAGE_KEY = 'hey-admin-token';
+    /** null unknown, true requires Bearer, false server has no HEY_ADMIN_TOKEN */
+    var serverAdminPasswordRequired = null;
     /** busy flag for catalog train/clear disabling */
     var catalogActionsBusy = false;
 
-    function getTrainingSessionToken() {
+    function getAdminSessionToken() {
       try {
-        var t = sessionStorage.getItem(HEY_TRAINING_SESSION_KEY);
+        var t = sessionStorage.getItem(HEY_ADMIN_SESSION_STORAGE_KEY);
         return t && typeof t === 'string' ? t.trim() : '';
       } catch (e) {
         return '';
       }
     }
 
-    function setTrainingSessionToken(token) {
+    function setAdminSessionToken(token) {
       try {
-        if (token && String(token).trim()) sessionStorage.setItem(HEY_TRAINING_SESSION_KEY, String(token).trim());
-        else sessionStorage.removeItem(HEY_TRAINING_SESSION_KEY);
+        if (token && String(token).trim()) sessionStorage.setItem(HEY_ADMIN_SESSION_STORAGE_KEY, String(token).trim());
+        else sessionStorage.removeItem(HEY_ADMIN_SESSION_STORAGE_KEY);
       } catch (e) { /* private mode */ }
     }
 
     function trainingActionsAllowed() {
-      if (serverTrainingPasswordRequired === false) return true;
-      if (serverTrainingPasswordRequired === true && getTrainingSessionToken()) return true;
+      if (serverAdminPasswordRequired === false) return true;
+      if (serverAdminPasswordRequired === true && getAdminSessionToken()) return true;
       return false;
     }
 
@@ -526,32 +527,32 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         if (gLocked) gLocked.classList.toggle('lock-icon-hidden', !showClosed);
         if (gOpen) gOpen.classList.toggle('lock-icon-hidden', showClosed);
       }
-      if (serverTrainingPasswordRequired === null) {
+      if (serverAdminPasswordRequired === null) {
         lockBtn.disabled = true;
         cap.textContent = 'Checking authentication…';
         cap.classList.remove('unlocked');
         lockBtn.classList.remove('unlocked');
         iconLocked(true);
-      } else if (serverTrainingPasswordRequired === false) {
+      } else if (serverAdminPasswordRequired === false) {
         lockBtn.disabled = false;
-        lockBtn.title = 'No training password configured on server';
+        lockBtn.title = 'No HEY_ADMIN_TOKEN configured on server';
         lockBtn.classList.add('unlocked');
         cap.classList.add('unlocked');
         cap.innerHTML = '<span>Unlocked</span> — API open (no login required)';
         iconLocked(false);
       } else {
         lockBtn.disabled = false;
-        var tok = getTrainingSessionToken();
+        var tok = getAdminSessionToken();
         if (tok) {
           lockBtn.title = 'Sign out';
-          lockBtn.setAttribute('aria-label', 'Sign out training session');
+          lockBtn.setAttribute('aria-label', 'Sign out admin session');
           lockBtn.classList.add('unlocked');
           cap.classList.add('unlocked');
           cap.innerHTML = '<span>Unlocked</span>';
           iconLocked(false);
         } else {
           lockBtn.title = 'Sign in';
-          lockBtn.setAttribute('aria-label', 'Training sign-in');
+          lockBtn.setAttribute('aria-label', 'Admin sign-in');
           lockBtn.classList.remove('unlocked');
           cap.classList.remove('unlocked');
           cap.innerHTML = '<span>Locked</span>';
@@ -561,7 +562,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       applyToolbarButtonState();
     }
 
-    function probeServerTrainingPassword() {
+    function probeServerAdminPassword() {
       return fetch(heyApi('/api/training/audio-catalog'), { cache: 'no-store' })
         .then(function (r) {
           if (r.status === 401) return { required: true };
@@ -614,7 +615,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       fetch(heyApi('/api/auth/verify-admin'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user, password: pwd, audience: 'training' }),
+        body: JSON.stringify({ username: user, password: pwd }),
       })
         .then(function (r) {
           return r.json().then(function (body) {
@@ -623,8 +624,8 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         })
         .then(function (x) {
           if (x.body && x.body.authDisabled === true) {
-            setTrainingSessionToken('');
-            serverTrainingPasswordRequired = false;
+            setAdminSessionToken('');
+            serverAdminPasswordRequired = false;
             closeTrainingLoginModal();
             refreshTrainingAuthChrome();
             loadAudioCatalog();
@@ -634,11 +635,11 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
             if (err) {
               err.textContent = (x.body && typeof x.body.error === 'string')
                 ? x.body.error
-                : 'Invalid training password';
+                : 'Invalid HEY_ADMIN_TOKEN';
             }
             return;
           }
-          setTrainingSessionToken(pwd);
+          setAdminSessionToken(pwd);
           closeTrainingLoginModal();
           refreshTrainingAuthChrome();
           loadAudioCatalog();
@@ -652,12 +653,12 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       var lockBtn = document.getElementById('training-lock-btn');
       if (lockBtn) {
         lockBtn.addEventListener('click', function () {
-          if (serverTrainingPasswordRequired !== true) return;
-          var tok = getTrainingSessionToken();
+          if (serverAdminPasswordRequired !== true) return;
+          var tok = getAdminSessionToken();
           if (!tok) {
             openTrainingLoginModal();
-          } else if (window.confirm('Sign out and clear this tab’s training password?')) {
-            setTrainingSessionToken('');
+          } else if (window.confirm('Sign out and clear this tab’s HEY_ADMIN_TOKEN session?')) {
+            setAdminSessionToken('');
             refreshTrainingAuthChrome();
           }
         });
@@ -682,8 +683,8 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         });
       }
 
-      probeServerTrainingPassword().then(function (p) {
-        serverTrainingPasswordRequired = !!(p && p.required);
+      probeServerAdminPassword().then(function (p) {
+        serverAdminPasswordRequired = !!(p && p.required);
         refreshTrainingAuthChrome();
         if (trainingActionsAllowed()) {
           loadAudioCatalog();
@@ -716,7 +717,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     }
 
     function authHeaders() {
-      var t = serverTrainingPasswordRequired === false ? '' : getTrainingSessionToken();
+      var t = serverAdminPasswordRequired === false ? '' : getAdminSessionToken();
       var h = {};
       if (t) h['Authorization'] = 'Bearer ' + t;
       return h;
@@ -971,14 +972,14 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       fetch(heyApi('/api/training/audio-catalog'), { headers: authHeaders(), cache: 'no-store' })
         .then(function (r) {
           if (r.status === 401) {
-            throw new Error('Unauthorized — open the lock icon and sign in with your training password.');
+            throw new Error('Unauthorized — open the lock icon and sign in with HEY_ADMIN_TOKEN.');
           }
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
         })
         .then(function (data) {
           status.textContent = '';
-          if (data.adminRequired && !getTrainingSessionToken()) {
+          if (data.adminRequired && !getAdminSessionToken()) {
             status.textContent = 'Tip: tap the lock to sign in, then tap Load all clips.';
           }
 
@@ -1088,7 +1089,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         .then(function (x) {
           if (x.status === 401) {
             status.innerHTML =
-              '<span class="err">Unauthorized — tap the lock to sign in with your training password.</span>';
+              '<span class="err">Unauthorized — tap the lock and enter HEY_ADMIN_TOKEN.</span>';
             return;
           }
           if (x.ok && x.j && x.j.ok) {
@@ -1180,7 +1181,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         .then(function (x) {
           if (x.status === 401) {
             status.innerHTML =
-              '<span class="err">Unauthorized — tap the lock to sign in with your training password.</span>';
+              '<span class="err">Unauthorized — tap the lock and enter HEY_ADMIN_TOKEN.</span>';
             setCatalogButtonsBusy(false);
             return;
           }
