@@ -110,13 +110,17 @@ seedConfigFromTemplateIfNeeded();
 loadConfig();
 console.log("Config loaded:", JSON.stringify(config));
 
+function trimmedDogName() {
+  return String(config.DOG_NAME || '').trim();
+}
+
 function siteHeyLabel() {
-  const n = String(config.DOG_NAME || '').trim();
+  const n = trimmedDogName();
   return n ? `Hey ${n}` : 'Hey';
 }
 
 function siteApiTitle() {
-  const n = String(config.DOG_NAME || '').trim();
+  const n = trimmedDogName();
   return n ? `Hey ${n} API` : 'Hey API';
 }
 
@@ -386,50 +390,20 @@ function computeRms(wavPath) {
   return count > 0 ? Math.sqrt(sumSq / count) : 0;
 }
 
-hey.on('reset', () => {
-  console.log("Resetting detections");
-  detections = 0;
-});
-
-soundDetector.on('skipped', ({ wavPath }) => {
-  const t = new Date().toISOString();
-  let rmsPart = '';
-  if (wavPath && fs.existsSync(wavPath)) {
-    try {
-      const rms = computeRms(wavPath);
-      lastRms = rms;
-      lastRmsTime = t;
-      lastRmsAboveFloor = rms >= config.MIN_RMS_AMPLITUDE;
-      rmsPart = ` rms=${rms.toFixed(4)}`;
-    } catch (_) {
-      /* ignore */
-    }
+function safeUnlinkMicClip(wavPath) {
+  if (!HEY_UNLINK_MIC_CLIP_AFTER_PROCESS) return;
+  try {
+    fs.unlinkSync(wavPath);
+  } catch (_) {
+    /* ignore */
   }
-  if (!skipNoSoundLogged) {
-    console.warn(`no valid sound detected, skipping...${rmsPart || ' (no clip file)'}`);
-    skipNoSoundLogged = true;
-  }
-});
+}
 
-soundDetector.on('detected', async ({ wavPath }) => {
-  skipNoSoundLogged = false;
-  lastSoundTime = new Date().toISOString();
-
-  const rms = computeRms(wavPath);
-  lastRms = rms;
-  lastRmsTime = lastSoundTime;
-  if (rms < config.MIN_RMS_AMPLITUDE) {
-    lastRmsAboveFloor = false;
-    console.warn(
-      `rms=${rms.toFixed(4)} below MIN_RMS_AMPLITUDE (${config.MIN_RMS_AMPLITUDE}), skipping classification`
-    );
-    if (HEY_UNLINK_MIC_CLIP_AFTER_PROCESS) {
-      try { fs.unlinkSync(wavPath); } catch (_) { /* ignore */ }
-    }
-    return;
-  }
-  lastRmsAboveFloor = true;
-
+/**
+ * Classify clip (or AI-off path), update lastClassified / detections, capture training inbox.
+ * Caller sets lastRms* / lastSoundTime; this handles unlink when HEY_UNLINK_MIC_CLIP_AFTER_PROCESS.
+ */
+async function processDetectedWav(wavPath, rms) {
   try {
     if (config.AI_DETECTION_ENABLED) {
       const result = await classifier.classify(wavPath);
@@ -445,8 +419,7 @@ soundDetector.on('detected', async ({ wavPath }) => {
         result.custom_head_used && typeof result.custom_head_score === 'number'
           ? ` custom_head=${result.custom_head_score}`
           : '';
-      const relaxedPart =
-        result.yamnet_relaxed_bark ? ' yamnet_relaxed_bark=true' : '';
+      const relaxedPart = result.yamnet_relaxed_bark ? ' yamnet_relaxed_bark=true' : '';
       const classifyLogLine =
         `rms=${rms.toFixed(4)} classified: ${topLabel} (${topScore}) ` +
         `bark_score=${result.bark_score} yamnet_is_bark=${result.yamnet_is_bark ?? false} is_bark=${result.is_bark ?? false}` +
@@ -481,14 +454,10 @@ soundDetector.on('detected', async ({ wavPath }) => {
       };
 
       const idPart = clipId ? ` clip_id=${clipId}` : '';
-      console.log(
-        `${classifyLogLine}${idPart}`
-      );
+      console.log(`${classifyLogLine}${idPart}`);
 
-      if (result.is_bark) {
-        if (++detections >= config.DETECTION_THRESHOLD) {
-          hey.send();
-        }
+      if (result.is_bark && ++detections >= config.DETECTION_THRESHOLD) {
+        hey.send();
       }
     } else {
       const aiOffLogLine = `rms=${rms.toFixed(4)} (AI off, skipping classification)`;
@@ -502,15 +471,13 @@ soundDetector.on('detected', async ({ wavPath }) => {
         clipId: clipId || undefined,
       };
       const idPart = clipId ? ` clip_id=${clipId}` : '';
-      console.log(
-        `${aiOffLogLine}${idPart}`
-      );
+      console.log(`${aiOffLogLine}${idPart}`);
       if (++detections >= config.DETECTION_THRESHOLD) {
         hey.send();
       }
     }
   } catch (err) {
-    console.error("Classification error:", err.message);
+    console.error('Classification error:', err.message);
     let cid = null;
     const classifyErrorLogLine =
       `rms=${rms.toFixed(4)} classification error: ${String(err.message || err)}`;
@@ -525,10 +492,52 @@ soundDetector.on('detected', async ({ wavPath }) => {
       console.warn(`clip_id=${cid} (classification threw; kept in training inbox for labeling)`);
     }
   } finally {
-    if (HEY_UNLINK_MIC_CLIP_AFTER_PROCESS) {
-      try { fs.unlinkSync(wavPath); } catch (_) { /* ignore */ }
+    safeUnlinkMicClip(wavPath);
+  }
+}
+
+hey.on('reset', () => {
+  console.log('Resetting detections');
+  detections = 0;
+});
+
+soundDetector.on('skipped', ({ wavPath }) => {
+  const t = new Date().toISOString();
+  let rmsPart = '';
+  if (wavPath && fs.existsSync(wavPath)) {
+    try {
+      const rms = computeRms(wavPath);
+      lastRms = rms;
+      lastRmsTime = t;
+      lastRmsAboveFloor = rms >= config.MIN_RMS_AMPLITUDE;
+      rmsPart = ` rms=${rms.toFixed(4)}`;
+    } catch (_) {
+      /* ignore */
     }
   }
+  if (!skipNoSoundLogged) {
+    console.warn(`no valid sound detected, skipping...${rmsPart || ' (no clip file)'}`);
+    skipNoSoundLogged = true;
+  }
+});
+
+soundDetector.on('detected', async ({ wavPath }) => {
+  skipNoSoundLogged = false;
+  lastSoundTime = new Date().toISOString();
+
+  const rms = computeRms(wavPath);
+  lastRms = rms;
+  lastRmsTime = lastSoundTime;
+  if (rms < config.MIN_RMS_AMPLITUDE) {
+    lastRmsAboveFloor = false;
+    console.warn(
+      `rms=${rms.toFixed(4)} below MIN_RMS_AMPLITUDE (${config.MIN_RMS_AMPLITUDE}), skipping classification`,
+    );
+    safeUnlinkMicClip(wavPath);
+    return;
+  }
+  lastRmsAboveFloor = true;
+  await processDetectedWav(wavPath, rms);
 });
 
 // === PRESENCE HEARTBEAT ===
