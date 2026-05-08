@@ -3,6 +3,7 @@ const {
   createHttpsMiddleware,
   createVerifyAdminGuard,
   isPrivateLanIpv4Address,
+  shouldBypassDocsAdminForTrustedLan,
 } = require('../admin-security');
 
 describe('adminCredentialMatches', () => {
@@ -93,6 +94,33 @@ describe('createHttpsMiddleware trustLan', () => {
       nextCalled = true;
     });
     expect(nextCalled).toBe(false);
+  });
+});
+
+describe('shouldBypassDocsAdminForTrustedLan', () => {
+  test('allows bypass when trustLan + adminActive and TCP peer is RFC1918', () => {
+    const req = { socket: { remoteAddress: '192.168.1.5' } };
+    expect(
+      shouldBypassDocsAdminForTrustedLan(req, { trustLan: true, adminActive: true }),
+    ).toBe(true);
+  });
+  test('no bypass when trustLan off', () => {
+    const req = { socket: { remoteAddress: '192.168.1.5' } };
+    expect(
+      shouldBypassDocsAdminForTrustedLan(req, { trustLan: false, adminActive: true }),
+    ).toBe(false);
+  });
+  test('no bypass when admin not configured', () => {
+    const req = { socket: { remoteAddress: '192.168.1.5' } };
+    expect(
+      shouldBypassDocsAdminForTrustedLan(req, { trustLan: true, adminActive: false }),
+    ).toBe(false);
+  });
+  test('no bypass for public TCP peer', () => {
+    const req = { socket: { remoteAddress: '198.51.100.1' } };
+    expect(
+      shouldBypassDocsAdminForTrustedLan(req, { trustLan: true, adminActive: true }),
+    ).toBe(false);
   });
 });
 

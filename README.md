@@ -142,6 +142,8 @@ If your site is reachable from the internet, set a secret on the **backend** so 
 When the variable is **set**, mutating routes require header `Authorization: Bearer <exact same string>`
 When it is **unset**, the server logs a warning and those routes stay open (convenient for local LAN dev).
 
+**LAN docs bypass (optional):** If `HEY_DOCS_ADMIN_TRUST_LAN=true`, clients whose **direct TCP connection** is from a private IPv4 LAN address (RFC1918 / link-local APIPA) may open `/api/docs`, `GET /api/openapi.yaml`, and `PUT /api/custom-head/clip/:label` **without** a Bearer header. Requests forwarded by a reverse proxy (public TCP peer) still need `HEY_ADMIN_TOKEN`. Same socket rule as `HEY_REQUIRE_HTTPS_TRUST_LAN` — not based on `X-Forwarded-For`.
+
 In the web UI, use the **lock** icon, enter the same value as `HEY_ADMIN_TOKEN` once per browser tab; it is kept in **session storage** until you close the tab. The dialog checks the token with `POST /api/auth/verify-admin` first — a wrong value shows an error and nothing is saved. Reads (`GET /api/config`, bark list, presence) stay unauthenticated so the dashboard still loads.
 
 ### Tuning
@@ -157,6 +159,7 @@ Use **Detection Settings** in the web app (gear icon) or edit `backend/config.js
 | `AGGREGATION_TIMER`               | How long a grouped bark “session” stays open; also used in the web UI to decide when the last RMS sample is “recent” for the status ring (seconds, default 60, range 10–300).                                                                                                       |
 | `MIC_MUTED`                       | If `true`, the microphone is off: **no** recording, **no** WAV files, **no** calls to the Python classifier. Default `false`. Changing it applies immediately and is persisted in `config.json`.                                                                                    |
 | `HEY_ADMIN_TOKEN` / `ADMIN_TOKEN` | **Backend env only**. SPA lock, Swagger/OpenAPI, messages/config/logs, clip upload, training WAV API, and `POST /api/custom-head/train`. |
+| `HEY_DOCS_ADMIN_TRUST_LAN` | Optional. If `true`, direct private-LAN TCP clients may use Swagger/OpenAPI and docs-gated clip upload without Bearer (see **LAN docs bypass** above). |
 | `CUSTOM_HEAD_ENABLED`             | If `true` **and** `backend/data/custom_model/head.json` exists, apply the trained embedding head. Default `false`.                                                                                                                                                                  |
 | `CUSTOM_HEAD_THRESHOLD`           | 0–1, probability threshold for the custom head (default **0.55**). Final bark if YAMNet says bark **or** custom probability ≥ this value.                                                                                                                                           |
 | `TRAINING_INBOX_ENABLED`          | If `true` (default), each classified event copies the WAV + metadata to `data/training_inbox/` and logs `clip_id=<UUID>` so you can promote it into training sets later. Set `false` on storage-constrained hosts if you only upload clips manually.                                |

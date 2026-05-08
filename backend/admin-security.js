@@ -188,6 +188,16 @@ function adminCredentialMatches(candidate, primaryRaw, previousRaw) {
   return false;
 }
 
+/**
+ * When `trustLan` is true and admin is configured, docs routes may skip Bearer if the **TCP peer**
+ * is private IPv4 (RFC1918 / APIPA). Uses `req.socket.remoteAddress` only — not spoofable via
+ * `X-Forwarded-For` (same rule as HTTPS `trustLan`).
+ */
+function shouldBypassDocsAdminForTrustedLan(req, { trustLan, adminActive }) {
+  if (!trustLan || !adminActive) return false;
+  return isPrivateLanIpv4Address(directTcpRemoteAddress(req));
+}
+
 module.exports = {
   parseBoolEnv,
   parsePositiveInt,
@@ -200,4 +210,5 @@ module.exports = {
   auditMutatingRoute,
   timingSafeEqualStrings,
   adminCredentialMatches,
+  shouldBypassDocsAdminForTrustedLan,
 };

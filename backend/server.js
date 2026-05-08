@@ -183,6 +183,7 @@ const {
   createVerifyAdminGuard,
   auditMutatingRoute,
   adminCredentialMatches,
+  shouldBypassDocsAdminForTrustedLan,
 } = require('./admin-security');
 
 // === Admin token (Bearer) — single secret for SPA, training WAV API, Swagger, etc. ===
@@ -192,6 +193,8 @@ const ADMIN_TOKEN_PREVIOUS_RAW = (process.env.HEY_ADMIN_TOKEN_PREVIOUS || '').tr
 
 const MAIN_ADMIN_ACTIVE = ADMIN_TOKEN_RAW.length > 0;
 const ANY_ADMIN_ACTIVE = MAIN_ADMIN_ACTIVE;
+/** When true, `/api/docs`, `/api/openapi.yaml`, and docs-gated clip upload skip Bearer for direct private-LAN IPv4 TCP peers only. */
+const HEY_DOCS_ADMIN_TRUST_LAN = parseBoolEnv(process.env.HEY_DOCS_ADMIN_TRUST_LAN, false);
 
 /** @returns {{ primary: string, previous: string }} */
 function getMainAdminSecrets() {
@@ -261,7 +264,8 @@ function requireMainAdmin(req, res, next) {
 }
 
 /**
- * Swagger, OpenAPI YAML, and docs-gated clip upload — requires HEY_ADMIN_TOKEN when set.
+ * Swagger, OpenAPI YAML, and docs-gated clip upload — requires HEY_ADMIN_TOKEN when set,
+ * unless `HEY_DOCS_ADMIN_TRUST_LAN` and the TCP peer is private LAN (see `shouldBypassDocsAdminForTrustedLan`).
  */
 function requireDocsAdmin(req, res, next) {
   if (!MAIN_ADMIN_ACTIVE) {
@@ -271,6 +275,15 @@ function requireDocsAdmin(req, res, next) {
       needsAdminAuth: true,
       detail: 'Set HEY_ADMIN_TOKEN for /api/docs and OpenAPI YAML.',
     });
+  }
+
+  if (
+    shouldBypassDocsAdminForTrustedLan(req, {
+      trustLan: HEY_DOCS_ADMIN_TRUST_LAN,
+      adminActive: MAIN_ADMIN_ACTIVE,
+    })
+  ) {
+    return next();
   }
 
   const sent = getBearerToken(req);
@@ -289,6 +302,11 @@ if (!ANY_ADMIN_ACTIVE) {
   console.log('[security] HEY_ADMIN_TOKEN is set — mutating APIs + training WAV routes require Authorization: Bearer …');
   if (ADMIN_TOKEN_PREVIOUS_RAW) {
     console.log('[security] HEY_ADMIN_TOKEN_PREVIOUS is set — previous token accepted for rotation overlap');
+  }
+  if (HEY_DOCS_ADMIN_TRUST_LAN) {
+    console.log(
+      '[security] HEY_DOCS_ADMIN_TRUST_LAN=true — docs/OpenAPI + docs-gated clip upload skip Bearer for direct private-LAN IPv4 TCP peers',
+    );
   }
 }
 hey.setAggrTime(config.AGGREGATION_TIMER);

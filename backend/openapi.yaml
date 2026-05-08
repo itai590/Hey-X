@@ -6,6 +6,8 @@ info:
     Bark detection, SQLite messages, and WAV training workflows.
 
     Protected APIs use **`Authorization: Bearer <HEY_ADMIN_TOKEN>`** (or bare token; server accepts both).
+
+    Optional: **`HEY_DOCS_ADMIN_TRUST_LAN=true`** allows Swagger/OpenAPI YAML and docs-gated clip upload without Bearer for **direct private-LAN IPv4 TCP clients** (same rule as HTTPS LAN trust — not `X-Forwarded-For`).
   version: 1.0.0
 
 servers:
