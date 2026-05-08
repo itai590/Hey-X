@@ -1400,54 +1400,58 @@ app.get('/api/openapi.yaml', requireDocsAdmin, (_req, res) => {
  * Swagger’s authorize modal uses a plain text input by default; align it with normal credential
  * fields so password managers (e.g. Bitwarden) can offer fills like `/api/training/listen` does.
  */
-const swaggerUiAuthorizeInputScript = `(function(){var r=document.getElementById("swagger-ui");if(!r)return;function p(){r.querySelectorAll(".dialog-ux input,.modal-ux input,[role=dialog] input").forEach(function(i){if(i.dataset.heySwaggerPm)return;i.dataset.heySwaggerPm="1";i.type="password";i.setAttribute("autocomplete","current-password");i.setAttribute("name","hey-admin-bearer-token");i.setAttribute("autocorrect","off");i.setAttribute("autocapitalize","off");i.setAttribute("spellcheck","false");});}p();new MutationObserver(p).observe(r,{childList:!0,subtree:!0});})();`;
+const swaggerUiAuthorizeInputScript = `
+(function () {
+  var root = document.getElementById('swagger-ui');
+  if (!root) return;
+
+  function cleanToken(value) {
+    return String(value || '').replace(/^Bearer\\s+/i, '').trim();
+  }
+
+  function rememberToken(value) {
+    var token = cleanToken(value);
+    if (token && token !== '[object Object]') {
+      window.__heySwaggerBearerMainToken = token;
+    }
+  }
+
+  function prepareAuthInputs() {
+    root.querySelectorAll('.dialog-ux input, .modal-ux input, [role=dialog] input')
+      .forEach(function (input) {
+        if (!input.dataset.heySwaggerPm) {
+          input.dataset.heySwaggerPm = '1';
+          input.type = 'password';
+          input.setAttribute('autocomplete', 'current-password');
+          input.setAttribute('name', 'hey-admin-bearer-token');
+          input.setAttribute('autocorrect', 'off');
+          input.setAttribute('autocapitalize', 'off');
+          input.setAttribute('spellcheck', 'false');
+          input.addEventListener('input', function () { rememberToken(input.value); });
+          input.addEventListener('change', function () { rememberToken(input.value); });
+        }
+        rememberToken(input.value);
+      });
+  }
+
+  root.addEventListener('click', function (event) {
+    var target = event && event.target;
+    var text = String((target && (target.textContent || target.value)) || '');
+    if (/authorize/i.test(text)) setTimeout(prepareAuthInputs, 0);
+  }, true);
+
+  prepareAuthInputs();
+  new MutationObserver(prepareAuthInputs).observe(root, { childList: true, subtree: true });
+}());
+`;
 
 function swaggerUiBearerTokenRequestInterceptor(req) {
-  const AUTH_NAMES = ['Authorization', 'authorization'];
-
-  function plain(value, seen) {
-    if (value == null) return '';
-    const visited = seen || [];
-    if (visited.indexOf(value) !== -1) return '';
-    if (typeof value === 'string') {
-      const token = value.replace(/^Bearer\s+/i, '').trim();
-      return token && !/^(http|bearer|apiKey)$/i.test(token) && token !== '[object Object]' ? token : '';
-    }
-    if (typeof value !== 'object' && typeof value !== 'function') return '';
-    visited.push(value);
-    if (typeof value.toJS === 'function') {
-      const token = plain(value.toJS(), visited);
-      if (token) return token;
-    }
-    if (typeof value.get === 'function') {
-      const token = plain(value.get('value'), visited)
-        || plain(value.get('token'), visited)
-        || plain(value.get('password'), visited)
-        || plain(value.get('access_token'), visited);
-      if (token) return token;
-    }
-    const preferred = ['value', 'token', 'password', 'access_token', 'apiKeyValue'];
-    for (let i = 0; i < preferred.length; i += 1) {
-      const token = plain(value[preferred[i]], visited);
-      if (token) return token;
-    }
-    const keys = Object.keys(value);
-    for (let i = 0; i < keys.length; i += 1) {
-      const key = keys[i];
-      if (/schema|definition|description|name|type|scheme|in/i.test(key)) continue;
-      const token = plain(value[key], visited);
-      if (token) return token;
-    }
-    return '';
+  function cleanToken(value) {
+    const token = String(value || '').replace(/^Bearer\s+/i, '').trim();
+    return token && token !== '[object Object]' ? token : '';
   }
 
-  function headerGet(headers, name) {
-    if (!headers) return undefined;
-    if (typeof headers.get === 'function') return headers.get(name);
-    return headers[name];
-  }
-
-  function headerSet(headers, name, value) {
+  function setHeader(headers, name, value) {
     if (headers && typeof headers.set === 'function') {
       const next = headers.set(name, value);
       return next || headers;
@@ -1455,38 +1459,33 @@ function swaggerUiBearerTokenRequestInterceptor(req) {
     return Object.assign({}, headers || {}, { [name]: value });
   }
 
-  function authHeader(reqObj) {
-    const headers = reqObj.headers || {};
-    for (let i = 0; i < AUTH_NAMES.length; i += 1) {
-      const value = headerGet(headers, AUTH_NAMES[i]);
-      if (value) return { name: AUTH_NAMES[i], value };
+  function deleteHeader(headers, name) {
+    if (headers && typeof headers.delete === 'function') {
+      const next = headers.delete(name);
+      return next || headers;
     }
-    return { name: 'Authorization', value: undefined };
+    const next = Object.assign({}, headers || {});
+    delete next[name];
+    return next;
   }
 
-  function authEntry(name) {
-    try {
-      const ui = window && window.ui;
-      const authorized = ui && ui.authSelectors && ui.authSelectors.authorized && ui.authSelectors.authorized();
-      const auth = authorized && typeof authorized.get === 'function' ? authorized.get(name) : authorized && authorized[name];
-      return plain(auth);
-    } catch (_err) {
-      return '';
-    }
+  function getHeader(headers, name) {
+    if (!headers) return undefined;
+    if (typeof headers.get === 'function') return headers.get(name);
+    return headers[name];
   }
 
-  const current = authHeader(req);
-  const header = current.value;
-  const needsRepair = header
-    && (typeof header === 'object' || String(header).trim() === 'Bearer [object Object]');
-  const url = String(req.url || '');
-  const isTrainingUrl = /\/api\/training\//.test(url) || /\/api\/custom-head\/train/.test(url);
-  if (needsRepair || (isTrainingUrl && !header)) {
-    const token = plain(header) || authEntry('bearerMainAuth');
-    if (token) {
-      req.headers = headerSet(req.headers, current.name, `Bearer ${token}`);
-    }
+  const token = cleanToken(typeof window !== 'undefined' && window.__heySwaggerBearerMainToken);
+  const header = getHeader(req.headers, 'Authorization') || getHeader(req.headers, 'authorization');
+  const hasBrokenSwaggerAuth = String(header || '').trim() === 'Bearer [object Object]';
+
+  if (token) {
+    req.headers = setHeader(req.headers, 'Authorization', `Bearer ${token}`);
+  } else if (hasBrokenSwaggerAuth) {
+    req.headers = deleteHeader(req.headers, 'Authorization');
+    req.headers = deleteHeader(req.headers, 'authorization');
   }
+
   return req;
 }
 
