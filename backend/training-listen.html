@@ -685,6 +685,9 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       probeServerTrainingPassword().then(function (p) {
         serverTrainingPasswordRequired = !!(p && p.required);
         refreshTrainingAuthChrome();
+        if (trainingActionsAllowed()) {
+          loadAudioCatalog();
+        }
       });
     })();
 
