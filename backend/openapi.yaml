@@ -2,12 +2,6 @@ openapi: 3.0.3
 info:
   # Overwritten at startup by server.js (`siteApiTitle()`); static default matches empty DOG_NAME.
   title: Hey API
-  description: |
-    Bark detection, SQLite messages, and WAV training workflows.
-
-    Protected APIs use **`Authorization: Bearer <HEY_ADMIN_TOKEN>`** (or bare token; server accepts both).
-
-    Optional: **`HEY_DOCS_ADMIN_TRUST_LAN=true`** allows Swagger/OpenAPI YAML and docs-gated clip upload without Bearer for **direct private-LAN IPv4 TCP clients** (same rule as HTTPS LAN trust — not `X-Forwarded-For`).
   version: 1.0.0
 
 servers:
@@ -54,7 +48,7 @@ paths:
                   type: string
                   enum: [main]
                   default: main
-                  description: Optional; ignored — use **`HEY_ADMIN_TOKEN`** only.
+                  description: Optional; ignored.
             example:
               password: "<paste HEY_ADMIN_TOKEN>"
       responses:
