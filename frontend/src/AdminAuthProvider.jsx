@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import AdminLoginDialog from './components/AdminLoginDialog';
 import { HEY_ADMIN_UNAUTHORIZED } from './apiClient';
-import { getAdminToken } from './authStorage';
+import { getAdminToken, HEY_ADMIN_TOKEN_CHANGED } from './authStorage';
 
 const AdminAuthContext = createContext({
   /** Open the admin password dialog (e.g. lock icon before changing settings). */
@@ -21,9 +21,23 @@ export function AdminAuthProvider({ children }) {
   const openAdminDialog = useCallback(() => setDialogOpen(true), []);
 
   useEffect(() => {
-    const onNeedAuth = () => setDialogOpen(true);
+    const onNeedAuth = () => {
+      setHasAdminSession(false);
+      setDialogOpen(true);
+    };
+    const onTokenChanged = (event) => {
+      if (event && event.detail && typeof event.detail.hasToken === 'boolean') {
+        setHasAdminSession(event.detail.hasToken);
+        return;
+      }
+      setHasAdminSession(Boolean(getAdminToken().trim()));
+    };
     window.addEventListener(HEY_ADMIN_UNAUTHORIZED, onNeedAuth);
-    return () => window.removeEventListener(HEY_ADMIN_UNAUTHORIZED, onNeedAuth);
+    window.addEventListener(HEY_ADMIN_TOKEN_CHANGED, onTokenChanged);
+    return () => {
+      window.removeEventListener(HEY_ADMIN_UNAUTHORIZED, onNeedAuth);
+      window.removeEventListener(HEY_ADMIN_TOKEN_CHANGED, onTokenChanged);
+    };
   }, []);
 
   const handleLoggedIn = useCallback(() => {

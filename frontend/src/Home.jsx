@@ -6,6 +6,7 @@ import {
 import useMediaQuery from '@mui/material/useMediaQuery';
 import SettingsIcon from '@mui/icons-material/Settings';
 import LockIcon from '@mui/icons-material/Lock';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
 import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -455,9 +456,13 @@ export default function Home() {
             {localMicMuted ? <MicOffIcon /> : <MicIcon />}
           </IconButton>
         </Tooltip>
-        <Tooltip title="Admin password">
-          <IconButton onClick={openAdminDialog} sx={{ color: 'white' }} aria-label="Enter admin password">
-            <LockIcon />
+        <Tooltip title={hasAdminSession ? 'Admin unlocked (password saved in this tab)' : 'Admin locked - enter password'}>
+          <IconButton
+            onClick={openAdminDialog}
+            sx={{ color: hasAdminSession ? '#66bb6a' : 'white' }}
+            aria-label="Enter admin password"
+          >
+            {hasAdminSession ? <LockOpenIcon /> : <LockIcon />}
           </IconButton>
         </Tooltip>
         {hasAdminSession && (

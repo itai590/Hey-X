@@ -1,4 +1,10 @@
 const KEY = 'hey-admin-token';
+export const HEY_ADMIN_TOKEN_CHANGED = 'hey-admin-token-changed';
+
+function notifyAdminTokenChanged(hasToken) {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+  window.dispatchEvent(new CustomEvent(HEY_ADMIN_TOKEN_CHANGED, { detail: { hasToken: !!hasToken } }));
+}
 
 export function getAdminToken() {
   try {
@@ -15,6 +21,7 @@ export function setAdminToken(token) {
   } catch {
     /* ignore quota / private mode */
   }
+  notifyAdminTokenChanged(Boolean(token && String(token).trim()));
 }
 
 export function clearAdminToken() {
@@ -23,4 +30,5 @@ export function clearAdminToken() {
   } catch {
     /* ignore */
   }
+  notifyAdminTokenChanged(false);
 }
