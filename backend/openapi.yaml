@@ -4,6 +4,11 @@ info:
   title: Hey API
   description: |
     Backend for bark detection, SQLite messages, and WAV training workflows.
+
+    **Authenticated requests** must send:
+    `Authorization: Bearer <token>`
+    where `<token>` is `HEY_ADMIN_TOKEN`, or for training-only endpoints `HEY_TRAINING_ADMIN_TOKEN` when that env is set (otherwise use the main token).
+    The server also accepts the raw token without the `Bearer ` prefix for compatibility.
   version: 1.0.0
 
 servers:
@@ -26,12 +31,6 @@ components:
       type: apiKey
       in: header
       name: Authorization
-      description: |
-        Header value sent as-is. Either form works:
-        **`Bearer `** then your secret (recommended), **or** paste the secret alone (no `Bearer ` prefix).
-
-        Use **HEY_ADMIN_TOKEN** for main admin routes. Training routes also accept **HEY_TRAINING_ADMIN_TOKEN**
-        when set on the server; otherwise use the main token.
 
 paths:
   /api/auth/verify-admin:

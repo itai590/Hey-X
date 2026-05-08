@@ -197,6 +197,12 @@ function createBearerTokenRequestInterceptor(globalKey = DEFAULT_GLOBAL_KEY) {
     authTrim === BROKEN_AUTH ||
     authTrim.indexOf('[object Object]') !== -1;
 
+  /** If Swagger sent only the secret (no Bearer prefix), strip/normalize then re-apply Bearer. */
+  if (!token && authTrim && !broken) {
+    var fromHeader = usableSecret(authTrim);
+    if (fromHeader) token = fromHeader;
+  }
+
   if (token) {
     req.headers = applyAuth(req.headers, 'Bearer ' + token);
   } else if (broken) {
