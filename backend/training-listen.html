@@ -127,8 +127,33 @@
     }
     .training-auth-caption.unlocked span { color: #a5d6a7; font-weight: 600; }
 
-    dialog.training-login-dialog {
+    /* Overlay modal (not <dialog>): Bitwarden and other extensions often fail autofilling native dialog top-layer forms. */
+    .training-login-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      box-sizing: border-box;
+    }
+    .training-login-overlay.training-login-overlay-open {
+      display: flex;
+    }
+    .training-login-overlay-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(4px);
       border: none;
+      padding: 0;
+      margin: 0;
+      cursor: default;
+    }
+    .training-login-dialog {
+      position: relative;
+      z-index: 1;
       border-radius: 16px;
       padding: 0;
       max-width: calc(100vw - 2rem);
@@ -137,10 +162,8 @@
       color: var(--text);
       box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
       border: 1px solid var(--border-strong);
-    }
-    dialog.training-login-dialog::backdrop {
-      background: rgba(0, 0, 0, 0.55);
-      backdrop-filter: blur(4px);
+      margin: 0;
+      outline: none;
     }
     .training-login-inner { padding: 1.35rem 1.35rem 1.1rem; }
     .training-login-inner h2 {
@@ -383,30 +406,40 @@
     </div>
   </div>
 
-  <dialog id="training-login-dialog" class="training-login-dialog" aria-labelledby="training-login-title">
-    <div class="training-login-inner">
-      <h2 id="training-login-title">Training login</h2>
-      <p class="training-login-hint">
-        Same secret as your server&apos;s training admin token (<code style="font-size:0.82em;">HEY_TRAINING_ADMIN_TOKEN</code> when set; otherwise <code style="font-size:0.82em;">HEY_ADMIN_TOKEN</code>). Kept in this tab until you sign out or close it.
-      </p>
-      <!-- Real <form> + standard name/autocomplete so password managers (e.g. Bitwarden) can detect and fill fields. -->
-      <form id="training-login-form" method="post" action="#" autocomplete="on" novalidate>
-        <div class="training-login-field">
-          <label for="training-modal-username">Username</label>
-          <input id="training-modal-username" name="username" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" />
-        </div>
-        <div class="training-login-field">
-          <label for="training-modal-password">Password</label>
-          <input id="training-modal-password" name="password" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
-        </div>
-        <div class="training-login-error" id="training-login-error" role="alert"></div>
-        <div class="training-login-actions">
-          <button type="button" id="training-login-cancel">Cancel</button>
-          <button type="submit" class="btn-accent" id="training-login-submit">Save session</button>
-        </div>
-      </form>
+  <div id="training-login-overlay" class="training-login-overlay" aria-hidden="true">
+    <div class="training-login-overlay-backdrop" id="training-login-backdrop" aria-hidden="true"></div>
+    <div
+      id="training-login-dialog"
+      class="training-login-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="training-login-title"
+      tabindex="-1"
+    >
+      <div class="training-login-inner">
+        <h2 id="training-login-title">Training login</h2>
+        <p class="training-login-hint">
+          Same secret as your server&apos;s training admin token (<code style="font-size:0.82em;">HEY_TRAINING_ADMIN_TOKEN</code> when set; otherwise <code style="font-size:0.82em;">HEY_ADMIN_TOKEN</code>). Kept in this tab until you sign out or close it.
+        </p>
+        <!-- Real <form> + standard name/autocomplete so password managers (e.g. Bitwarden) can detect and fill fields. -->
+        <form id="training-login-form" method="post" action="#" autocomplete="on" novalidate>
+          <div class="training-login-field">
+            <label for="training-modal-username">Username</label>
+            <input id="training-modal-username" name="username" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" />
+          </div>
+          <div class="training-login-field">
+            <label for="training-modal-password">Password</label>
+            <input id="training-modal-password" name="password" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+          </div>
+          <div class="training-login-error" id="training-login-error" role="alert"></div>
+          <div class="training-login-actions">
+            <button type="button" id="training-login-cancel">Cancel</button>
+            <button type="submit" class="btn-accent" id="training-login-submit">Save session</button>
+          </div>
+        </form>
+      </div>
     </div>
-  </dialog>
+  </div>
 
   <section>
     <h2>Hear clips by ID</h2>
@@ -546,28 +579,27 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     }
 
     function openTrainingLoginModal() {
-      var dlg = document.getElementById('training-login-dialog');
+      var overlay = document.getElementById('training-login-overlay');
       var err = document.getElementById('training-login-error');
       var u = document.getElementById('training-modal-username');
       var p = document.getElementById('training-modal-password');
-      if (!dlg) return;
+      if (!overlay) return;
       if (err) err.textContent = '';
       if (u) u.value = '';
       if (p) p.value = '';
-      try {
-        if (typeof dlg.showModal === 'function') dlg.showModal();
-        else window.alert('This browser does not support the login dialog. Use a newer browser.');
-      } catch (e) {
-        console.error(e);
-      }
+      overlay.classList.add('training-login-overlay-open');
+      overlay.setAttribute('aria-hidden', 'false');
       window.setTimeout(function () {
         if (u && u.focus) u.focus();
       }, 60);
     }
 
     function closeTrainingLoginModal() {
-      var dlg = document.getElementById('training-login-dialog');
-      if (dlg && typeof dlg.close === 'function') dlg.close();
+      var overlay = document.getElementById('training-login-overlay');
+      if (overlay) {
+        overlay.classList.remove('training-login-overlay-open');
+        overlay.setAttribute('aria-hidden', 'true');
+      }
     }
 
     function submitTrainingLogin() {
@@ -633,6 +665,16 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       }
       var cancelBtn = document.getElementById('training-login-cancel');
       if (cancelBtn) cancelBtn.addEventListener('click', closeTrainingLoginModal);
+      var backdropBtn = document.getElementById('training-login-backdrop');
+      if (backdropBtn) backdropBtn.addEventListener('click', closeTrainingLoginModal);
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key !== 'Escape') return;
+        var overlay = document.getElementById('training-login-overlay');
+        if (overlay && overlay.classList.contains('training-login-overlay-open')) {
+          ev.preventDefault();
+          closeTrainingLoginModal();
+        }
+      });
       var loginForm = document.getElementById('training-login-form');
       if (loginForm) {
         loginForm.addEventListener('submit', function (ev) {
