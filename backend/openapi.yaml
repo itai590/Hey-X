@@ -2,6 +2,11 @@ openapi: 3.0.3
 info:
   # Overwritten at startup by server.js (`siteApiTitle()`); static default matches empty DOG_NAME.
   title: Hey API
+  description: |
+    Backend for bark detection, SQLite messages, and WAV training workflows.
+
+    **Admin routes** use `Authorization: Bearer <HEY_ADMIN_TOKEN>` when that env var is set.
+    When unset, mutating routes may still be open — prefer setting the token in production.
   version: 1.0.0
 
 servers:
@@ -10,7 +15,6 @@ servers:
 
 tags:
   - name: Auth
-  - name: Admin
   - name: Messages
   - name: Config
   - name: CustomHead
@@ -19,21 +23,16 @@ tags:
 
 components:
   securitySchemes:
-    # apiKey + Authorization avoids Swagger UI bug where `http`/`bearer` serializes as `[object Object]`.
-    bearerMainAuth:
-      type: apiKey
-      in: header
-      name: Authorization
-      description: |
-        **`Authorization: Bearer <secret>`** or paste the secret only (Swagger prepends `Bearer `).
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: HEY_ADMIN_TOKEN
 
 paths:
   /api/auth/verify-admin:
     post:
-      tags: [Auth]
+      tags: [ Auth ]
       summary: Verify admin password or Bearer token
-      security:
-        - bearerMainAuth: []
       requestBody:
         required: false
         content:
@@ -43,14 +42,7 @@ paths:
               properties:
                 password:
                   type: string
-                  description: Same value as **`HEY_ADMIN_TOKEN`** (alternative to Bearer on this request)
-                audience:
-                  type: string
-                  enum: [main]
-                  default: main
-                  description: Optional; ignored.
-            example:
-              password: "<paste HEY_ADMIN_TOKEN>"
+                  description: Same value as HEY_ADMIN_TOKEN (alternative to Bearer header)
       responses:
         "200":
           description: OK
@@ -60,48 +52,15 @@ paths:
                 type: object
                 properties:
                   ok: { type: boolean }
-                  audience:
-                    type: string
-                    enum: [main]
-                    description: Always `main` when auth is enabled
                   authDisabled:
                     type: boolean
-                    description: Present when `HEY_ADMIN_TOKEN` is unset
+                    description: Present when HEY_ADMIN_TOKEN is unset
         "401":
           description: Invalid credentials
-        "403":
-          description: HTTPS required (`HEY_REQUIRE_HTTPS`); body may include code `HTTPS_REQUIRED`
-        "429":
-          description: Too many verify-admin attempts or temporary lockout; may include codes `VERIFY_ADMIN_RATE_LIMITED` or `VERIFY_ADMIN_LOCKED`
-
-  /api/admin/logs:
-    get:
-      tags: [Admin]
-      summary: Tail of persisted backend log file (`HEY_LOG_DIR/backend.log`)
-      security:
-        - bearerMainAuth: []
-      parameters:
-        - name: maxBytes
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 4096
-          description: Bytes to read from end of file (clamped server-side)
-      responses:
-        "200":
-          description: JSON with tail text or configured/empty states
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: true
-        "401":
-          description: Unauthorized
 
   /api/messages:
     get:
-      tags: [Messages]
+      tags: [ Messages ]
       summary: List timeline messages
       responses:
         "200":
@@ -113,17 +72,17 @@ paths:
                 items:
                   type: object
     delete:
-      tags: [Messages]
+      tags: [ Messages ]
       summary: Delete messages by ids
       security:
-        - bearerMainAuth: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [ids]
+              required: [ ids ]
               properties:
                 ids:
                   type: array
@@ -138,10 +97,10 @@ paths:
 
   /api/messages/{id}:
     put:
-      tags: [Messages]
+      tags: [ Messages ]
       summary: Create or update a message
       security:
-        - bearerMainAuth: []
+        - bearerAuth: []
       parameters:
         - name: id
           in: path
@@ -163,7 +122,7 @@ paths:
 
   /api/config:
     get:
-      tags: [Config]
+      tags: [ Config ]
       summary: Get merged runtime configuration
       responses:
         "200":
@@ -174,10 +133,10 @@ paths:
                 type: object
                 additionalProperties: true
     put:
-      tags: [Config]
+      tags: [ Config ]
       summary: Update allowed config keys
       security:
-        - bearerMainAuth: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -197,7 +156,7 @@ paths:
 
   /api/custom-head/status:
     get:
-      tags: [CustomHead]
+      tags: [ CustomHead ]
       summary: Custom head + clip counts
       responses:
         "200":
@@ -205,10 +164,10 @@ paths:
 
   /api/custom-head/train:
     post:
-      tags: [CustomHead]
+      tags: [ CustomHead ]
       summary: Run Python train_custom_head.py
       security:
-        - bearerMainAuth: []
+        - bearerAuth: []
       responses:
         "200":
           description: Training finished
@@ -219,17 +178,17 @@ paths:
 
   /api/custom-head/clip/{label}:
     put:
-      tags: [CustomHead]
+      tags: [ CustomHead ]
       summary: Upload a WAV clip into custom_clips/{label}
       security:
-        - bearerMainAuth: []
+        - bearerAuth: []
       parameters:
         - name: label
           in: path
           required: true
           schema:
             type: string
-            enum: [bark, not_bark]
+            enum: [ bark, not_bark ]
       requestBody:
         required: true
         content:
@@ -247,7 +206,7 @@ paths:
 
   /api/training/listen:
     get:
-      tags: [Training]
+      tags: [ Training ]
       summary: HTML page to review WAVs (browser UI)
       responses:
         "200":
@@ -259,10 +218,10 @@ paths:
 
   /api/training/audio-catalog:
     get:
-      tags: [Training]
+      tags: [ Training ]
       summary: JSON listing of inbox, mic_temp, and custom clip WAVs
       security:
-        - bearerMainAuth: []
+        - bearerAuth: []
       responses:
         "200":
           description: Catalog
@@ -271,10 +230,10 @@ paths:
 
   /api/training/mic-temp/{filename}/audio:
     get:
-      tags: [Training]
+      tags: [ Training ]
       summary: Stream a mic temp WAV (e.g. clip-1777557607959.wav)
       security:
-        - bearerMainAuth: []
+        - bearerAuth: []
       parameters:
         - name: filename
           in: path
@@ -297,17 +256,17 @@ paths:
 
   /api/training/custom-clips/{label}/{filename}/audio:
     get:
-      tags: [Training]
+      tags: [ Training ]
       summary: Stream a WAV from data/custom_clips/{label}
       security:
-        - bearerMainAuth: []
+        - bearerAuth: []
       parameters:
         - name: label
           in: path
           required: true
           schema:
             type: string
-            enum: [bark, not_bark]
+            enum: [ bark, not_bark ]
         - name: filename
           in: path
           required: true
@@ -323,21 +282,21 @@ paths:
 
   /api/training/inbox:
     get:
-      tags: [Training]
+      tags: [ Training ]
       summary: List training inbox clips with metadata
       security:
-        - bearerMainAuth: []
+        - bearerAuth: []
       responses:
         "200":
           description: Inbox list
         "401":
           description: Unauthorized
     delete:
-      tags: [Training]
+      tags: [ Training ]
       summary: Remove all WAV and JSON files from the training inbox directory
       description: Does not delete clips already under custom_clips.
       security:
-        - bearerMainAuth: []
+        - bearerAuth: []
       responses:
         "200":
           description: Cleared
@@ -357,10 +316,10 @@ paths:
 
   /api/training/inbox/{clipId}/audio:
     get:
-      tags: [Training]
+      tags: [ Training ]
       summary: Stream training inbox WAV by UUID
       security:
-        - bearerMainAuth: []
+        - bearerAuth: []
       parameters:
         - name: clipId
           in: path
@@ -378,43 +337,12 @@ paths:
         "404":
           description: Not found
 
-  /api/training/inbox/{clipId}/wav-meta:
-    get:
-      tags: [Training]
-      summary: RMS and capturedAt for a clip (inbox or promoted WAV)
-      security:
-        - bearerMainAuth: []
-      parameters:
-        - name: clipId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: Metadata JSON
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  clipId: { type: string }
-                  rms: { type: number, nullable: true }
-                  capturedAt: { type: string, nullable: true }
-        "400":
-          description: Invalid clip id
-        "401":
-          description: Unauthorized
-        "404":
-          description: Clip not found or expired
-
   /api/training/inbox/{clipId}/promote:
     post:
-      tags: [Training]
+      tags: [ Training ]
       summary: Move clip from inbox to custom_clips for labeling
       security:
-        - bearerMainAuth: []
+        - bearerAuth: []
       parameters:
         - name: clipId
           in: path
@@ -428,11 +356,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [label]
+              required: [ label ]
               properties:
                 label:
                   type: string
-                  enum: [bark, not_bark]
+                  enum: [ bark, not_bark ]
       responses:
         "200":
           description: Promoted
@@ -445,10 +373,10 @@ paths:
 
   /api/training/inbox/{clipId}:
     delete:
-      tags: [Training]
+      tags: [ Training ]
       summary: Remove clip from training inbox
       security:
-        - bearerMainAuth: []
+        - bearerAuth: []
       parameters:
         - name: clipId
           in: path
@@ -468,7 +396,7 @@ paths:
 
   /api/presence:
     get:
-      tags: [Presence]
+      tags: [ Presence ]
       summary: Heartbeat, last sound, RMS floor, last classification snapshot
       responses:
         "200":

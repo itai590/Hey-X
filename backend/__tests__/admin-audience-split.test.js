@@ -40,7 +40,7 @@ describe('admin token', () => {
   test('token opens OpenAPI YAML', async () => {
     const yaml = await request(app).get('/api/openapi.yaml').set(auth);
     expect(yaml.status).toBe(200);
-    expect(yaml.text).toContain('bearerMainAuth:');
+    expect(yaml.text).toContain('bearerAuth:');
   });
 
   test('verify-admin accepts HEY_ADMIN_TOKEN (optional legacy audience ignored)', async () => {

@@ -1,10 +1,30 @@
+/**
+ * Helpers are inlined in server.js; `adminSecurityForTests` exists only when HEY_TEST_MODE=1.
+ * When this file runs alone, seeds minimal env; when run after other suites, reuses cached server.
+ */
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+if (!process.env.HEY_DB_PATH) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hey-adminsec-unit-'));
+  process.env.HEY_TEST_MODE = '1';
+  process.env.HEY_DB_PATH = path.join(tmpDir, 'adminsec.db');
+  process.env.HEY_CONFIG_PATH = path.join(tmpDir, 'config.json');
+}
+
+const app = require('../server');
+const as = app.adminSecurityForTests;
+if (!as) {
+  throw new Error('Expected app.adminSecurityForTests (run with HEY_TEST_MODE=1)');
+}
 const {
   adminCredentialMatches,
   createHttpsMiddleware,
   createVerifyAdminGuard,
   isPrivateLanIpv4Address,
   shouldBypassDocsAdminForTrustedLan,
-} = require('../admin-security');
+} = as;
 
 describe('adminCredentialMatches', () => {
   test('matches primary token', () => {

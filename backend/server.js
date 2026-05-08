@@ -175,16 +175,179 @@ function tryCaptureClip(wavPath, meta) {
   }
 }
 
-const {
-  parseBoolEnv,
-  parsePositiveInt,
-  configureTrustProxy,
-  createHttpsMiddleware,
-  createVerifyAdminGuard,
-  auditMutatingRoute,
-  adminCredentialMatches,
-  shouldBypassDocsAdminForTrustedLan,
-} = require('./admin-security');
+// --- Admin hardening helpers (HTTPS gate, verify-admin throttle, credential match, docs LAN bypass; in-memory state) ---
+function parseBoolEnv(raw, fallback) {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (s === '' || s === 'unset') return fallback;
+  if (s === '1' || s === 'true' || s === 'yes' || s === 'on') return true;
+  if (s === '0' || s === 'false' || s === 'no' || s === 'off') return false;
+  return fallback;
+}
+
+function parsePositiveInt(raw, fallback) {
+  const n = parseInt(String(raw ?? '').trim(), 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function trustProxyExpressValue(raw) {
+  const s = String(raw ?? '').trim();
+  if (s === '') return undefined;
+  if (s === 'true' || s === '1' || s === 'yes') return true;
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  return s;
+}
+
+function isHttpsRequest(req) {
+  if (req.secure) return true;
+  const first = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  return first === 'https';
+}
+
+function configureTrustProxy(app, { heyRequireHttps, trustProxyRaw }) {
+  const fromEnv = trustProxyExpressValue(trustProxyRaw);
+  if (fromEnv !== undefined) {
+    app.set('trust proxy', fromEnv);
+    return;
+  }
+  if (heyRequireHttps) {
+    app.set('trust proxy', 1);
+  }
+}
+
+function isProbablyLoopback(req) {
+  const ip = String(req.ip || req.socket?.remoteAddress || '');
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
+function directTcpRemoteAddress(req) {
+  return String(req.socket?.remoteAddress || req.connection?.remoteAddress || '');
+}
+
+function normalizeToIpv4String(addr) {
+  const s = String(addr || '');
+  const m = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(s.trim());
+  return m ? m[1] : s;
+}
+
+function isPrivateLanIpv4Address(addr) {
+  const v4 = normalizeToIpv4String(addr);
+  const parts = v4.split('.');
+  if (parts.length !== 4) return false;
+  const nums = parts.map((p) => parseInt(p, 10));
+  if (nums.some((n) => !Number.isFinite(n) || n < 0 || n > 255)) return false;
+  const [ai, bi] = nums;
+  if (ai === 10) return true;
+  if (ai === 172 && bi >= 16 && bi <= 31) return true;
+  if (ai === 192 && bi === 168) return true;
+  if (ai === 169 && bi === 254) return true;
+  return false;
+}
+
+function createHttpsMiddleware(heyRequireHttps, { trustLoopback = true, trustLan = false } = {}) {
+  if (!heyRequireHttps) return function httpsSkip(_req, _res, next) {
+    next();
+  };
+  return function requireHttps(req, res, next) {
+    if (trustLoopback && isProbablyLoopback(req)) return next();
+    if (trustLan && isPrivateLanIpv4Address(directTcpRemoteAddress(req))) return next();
+    if (isHttpsRequest(req)) return next();
+    return res.status(403).json({ error: 'HTTPS required', code: 'HTTPS_REQUIRED' });
+  };
+}
+
+function createVerifyAdminGuard(options) {
+  const windowMs = options.windowMs;
+  const maxAttempts = options.maxAttempts;
+  const lockoutAfterFails = options.lockoutAfterFails;
+  const lockoutBaseMs = options.lockoutBaseMs;
+  const lockoutMaxMs = options.lockoutMaxMs;
+
+  /** @type Map<string, { hits: number[], consecFail: number, lockedUntil: number }> */
+  const byKey = new Map();
+
+  function getState(key) {
+    let st = byKey.get(key);
+    if (!st) {
+      st = { hits: [], consecFail: 0, lockedUntil: 0 };
+      byKey.set(key, st);
+    }
+    return st;
+  }
+
+  function pruneHits(st, now) {
+    st.hits = st.hits.filter((t) => now - t < windowMs);
+  }
+
+  function checkAllowed(key, now = Date.now()) {
+    const st = getState(key);
+    pruneHits(st, now);
+    if (st.lockedUntil > now) {
+      return {
+        ok: false,
+        retryAfterSec: Math.ceil((st.lockedUntil - now) / 1000),
+        reason: 'locked_out',
+      };
+    }
+    if (st.hits.length >= maxAttempts) {
+      return { ok: false, retryAfterSec: Math.ceil(windowMs / 1000), reason: 'rate_limited' };
+    }
+    st.hits.push(now);
+    return { ok: true };
+  }
+
+  function recordFailure(key, now = Date.now()) {
+    const st = getState(key);
+    st.consecFail += 1;
+    if (st.consecFail >= lockoutAfterFails) {
+      const power = Math.max(0, st.consecFail - lockoutAfterFails);
+      const ms = Math.min(lockoutMaxMs, lockoutBaseMs * Math.pow(2, power));
+      st.lockedUntil = now + ms;
+    }
+  }
+
+  function recordSuccess(key) {
+    const st = getState(key);
+    st.consecFail = 0;
+    st.lockedUntil = 0;
+    st.hits = [];
+  }
+
+  return { checkAllowed, recordFailure, recordSuccess };
+}
+
+function auditMutatingRoute(req, res, next) {
+  const start = Date.now();
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const path = req.originalUrl || req.url || '';
+  res.on('finish', () => {
+    const durationMs = Date.now() - start;
+    const safeIp = typeof ip === 'string' ? ip : String(ip);
+    console.log(
+      `[audit-admin] ${req.method} ${path} status=${res.statusCode} duration_ms=${durationMs} ip=${safeIp}`,
+    );
+  });
+  next();
+}
+
+function timingSafeEqualStrings(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufa = Buffer.from(a, 'utf8');
+  const bufb = Buffer.from(b, 'utf8');
+  if (bufa.length !== bufb.length) return false;
+  return crypto.timingSafeEqual(bufa, bufb);
+}
+
+function adminCredentialMatches(candidate, primaryRaw, previousRaw) {
+  if (!candidate) return false;
+  if (timingSafeEqualStrings(primaryRaw, candidate)) return true;
+  if (previousRaw && timingSafeEqualStrings(previousRaw, candidate)) return true;
+  return false;
+}
+
+function shouldBypassDocsAdminForTrustedLan(req, { trustLan, adminActive }) {
+  if (!trustLan || !adminActive) return false;
+  return isPrivateLanIpv4Address(directTcpRemoteAddress(req));
+}
 
 // === Admin token (Bearer) — single secret for SPA, training WAV API, Swagger, etc. ===
 const ADMIN_TOKEN_RAW = (process.env.HEY_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '').trim();
@@ -1335,11 +1498,6 @@ app.get('/api/presence', (_req, res) => {
 // === OpenAPI / Swagger UI ===
 const swaggerUi = require('swagger-ui-express');
 const yaml = require('js-yaml');
-const { collapseSecurityScheme } = require('./openapi-security-schemes');
-const {
-  buildAuthorizeInputScript,
-  createBearerTokenRequestInterceptor,
-} = require('./swagger-ui-bearer');
 
 const openApiPath = path.join(__dirname, 'openapi.yaml');
 let openApiSpec;
@@ -1360,9 +1518,6 @@ if (openApiSpec && openApiSpec.info) {
   openApiSpec.info.title = siteApiTitle();
 }
 
-/** Legacy no-op when YAML has only `bearerMainAuth`; keeps forks that still define `bearerTrainingAuth` consistent. */
-collapseSecurityScheme(openApiSpec, 'bearerTrainingAuth', 'bearerMainAuth');
-
 app.get('/api/openapi.yaml', requireDocsAdmin, (_req, res) => {
   res.type('text/yaml; charset=utf-8');
   res.send(yaml.dump(openApiSpec, { lineWidth: -1 }));
@@ -1376,8 +1531,6 @@ app.use(
     customCss: '.swagger-ui .topbar { display: none }',
     customSiteTitle: siteApiTitle(),
     persistAuthorization: false,
-    customJsStr: buildAuthorizeInputScript(),
-    requestInterceptor: createBearerTokenRequestInterceptor(),
   }),
 );
 
@@ -1385,6 +1538,23 @@ app.use(
 if (!HEY_TEST_MODE) {
   const { startWatcher } = require('./log-watcher');
   startWatcher({ getBrandTitle: () => siteHeyLabel() });
+}
+
+if (HEY_TEST_MODE) {
+  app.adminSecurityForTests = {
+    parseBoolEnv,
+    parsePositiveInt,
+    trustProxyExpressValue,
+    configureTrustProxy,
+    createHttpsMiddleware,
+    isPrivateLanIpv4Address,
+    directTcpRemoteAddress,
+    createVerifyAdminGuard,
+    auditMutatingRoute,
+    timingSafeEqualStrings,
+    adminCredentialMatches,
+    shouldBypassDocsAdminForTrustedLan,
+  };
 }
 
 module.exports = app;

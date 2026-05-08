@@ -225,7 +225,7 @@ describe('OpenAPI', () => {
     expect(authed.headers['content-type'] || '').toMatch(/yaml/);
     expect(authed.text).toContain('openapi:');
     expect(authed.text).toMatch(/title:\s*Hey(\s+[^\n]+)?\s+API/);
-    expect(authed.text).toContain('bearerMainAuth:');
+    expect(authed.text).toContain('bearerAuth:');
     expect(authed.text).not.toContain('bearerTrainingAuth:');
     expect(authed.text).not.toContain('bearerDocsAuth:');
   });
@@ -240,7 +240,7 @@ describe('OpenAPI', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type'] || '').toMatch(/html/);
     expect(res.text.toLowerCase()).toContain('swagger');
-    expect(res.text).toContain('heySwaggerPm');
+    expect(res.text).toContain('swagger-ui-bundle.js');
   });
 });
 
