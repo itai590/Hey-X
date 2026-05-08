@@ -179,6 +179,7 @@ const {
   createVerifyAdminGuard,
   auditMutatingRoute,
   adminCredentialMatches,
+  shouldBypassDocsAdminBearerForTrustedLan,
 } = require('./admin-security-phase1');
 
 // === Admin tokens (Bearer) — optional split per surface ===
@@ -198,6 +199,9 @@ const MAIN_ADMIN_ACTIVE = ADMIN_TOKEN_RAW.length > 0;
 const ANY_ADMIN_ACTIVE = MAIN_ADMIN_ACTIVE
   || (TRAINING_ADMIN_TOKEN_RAW.length > 0)
   || (DOCS_ADMIN_TOKEN_RAW.length > 0);
+
+/** When true, TCP clients on private IPv4 LAN may use /api/docs, OpenAPI YAML, clip upload without Bearer (see shouldBypassDocsAdminBearerForTrustedLan). */
+const HEY_DOCS_ADMIN_TRUST_LAN = parseBoolEnv(process.env.HEY_DOCS_ADMIN_TRUST_LAN, false);
 
 /** @returns {{ primary: string, previous: string }} */
 function getMainAdminSecrets() {
@@ -306,6 +310,7 @@ function requireTrainingAdmin(req, res, next) {
 function requireDocsAdmin(req, res, next) {
   const secrets = getDocsAdminSecrets();
   if (!secrets.primary.length) return next();
+  if (shouldBypassDocsAdminBearerForTrustedLan(req, HEY_DOCS_ADMIN_TRUST_LAN)) return next();
   const sent = getBearerToken(req);
   if (!sent || !candidateMatchesAudience(sent, 'docs')) {
     res.set('WWW-Authenticate', 'Bearer realm="hey-docs-admin"');
@@ -336,6 +341,11 @@ if (!ANY_ADMIN_ACTIVE) {
     if (DOCS_ADMIN_TOKEN_PREVIOUS_RAW) {
       console.log('[security] HEY_DOCS_ADMIN_TOKEN_PREVIOUS is set — docs rotation overlap');
     }
+  }
+  if (HEY_DOCS_ADMIN_TRUST_LAN && audienceAuthActive('docs')) {
+    console.log(
+      '[security] HEY_DOCS_ADMIN_TRUST_LAN=true — RFC1918/APIPA IPv4 TCP peers may access docs surfaces without Bearer (same socket rule as HTTPS LAN trust)',
+    );
   }
 }
 hey.setAggrTime(config.AGGREGATION_TIMER);
