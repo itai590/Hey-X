@@ -389,19 +389,22 @@
       <p class="training-login-hint">
         Same secret as your server&apos;s training admin token (<code style="font-size:0.82em;">HEY_TRAINING_ADMIN_TOKEN</code> when set; otherwise <code style="font-size:0.82em;">HEY_ADMIN_TOKEN</code>). Kept in this tab until you sign out or close it.
       </p>
-      <div class="training-login-field">
-        <label for="training-modal-username">Username</label>
-        <input id="training-modal-username" name="hey-training-display-name" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-      </div>
-      <div class="training-login-field">
-        <label for="training-modal-password">Password</label>
-        <input id="training-modal-password" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
-      </div>
-      <div class="training-login-error" id="training-login-error" role="alert"></div>
-      <div class="training-login-actions">
-        <button type="button" id="training-login-cancel">Cancel</button>
-        <button type="button" class="btn-accent" id="training-login-submit">Save session</button>
-      </div>
+      <!-- Real <form> + standard name/autocomplete so password managers (e.g. Bitwarden) can detect and fill fields. -->
+      <form id="training-login-form" method="post" action="#" autocomplete="on" novalidate>
+        <div class="training-login-field">
+          <label for="training-modal-username">Username</label>
+          <input id="training-modal-username" name="username" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" />
+        </div>
+        <div class="training-login-field">
+          <label for="training-modal-password">Password</label>
+          <input id="training-modal-password" name="password" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+        </div>
+        <div class="training-login-error" id="training-login-error" role="alert"></div>
+        <div class="training-login-actions">
+          <button type="button" id="training-login-cancel">Cancel</button>
+          <button type="submit" class="btn-accent" id="training-login-submit">Save session</button>
+        </div>
+      </form>
     </div>
   </dialog>
 
@@ -630,16 +633,11 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       }
       var cancelBtn = document.getElementById('training-login-cancel');
       if (cancelBtn) cancelBtn.addEventListener('click', closeTrainingLoginModal);
-      var submitBtn = document.getElementById('training-login-submit');
-      if (submitBtn) submitBtn.addEventListener('click', submitTrainingLogin);
-      var dlg = document.getElementById('training-login-dialog');
-      var pwdIn = document.getElementById('training-modal-password');
-      if (pwdIn) {
-        pwdIn.addEventListener('keydown', function (ev) {
-          if (ev.key === 'Enter') {
-            ev.preventDefault();
-            submitTrainingLogin();
-          }
+      var loginForm = document.getElementById('training-login-form');
+      if (loginForm) {
+        loginForm.addEventListener('submit', function (ev) {
+          ev.preventDefault();
+          submitTrainingLogin();
         });
       }
 
