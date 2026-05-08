@@ -21,16 +21,17 @@ tags:
 
 components:
   securitySchemes:
+    # apiKey + Authorization avoids Swagger UI bug where `http`/`bearer` serializes as `[object Object]`.
     bearerMainAuth:
-      type: http
-      scheme: bearer
+      type: apiKey
+      in: header
+      name: Authorization
       description: |
-        Paste **HEY_ADMIN_TOKEN** for routes that use main admin auth (messages, config,
-        GET `/api/admin/logs`, OpenAPI YAML/docs surfaces that still require Bearer when not using LAN trust).
+        Type the **full** header value (one line), exactly:
+        `Bearer ` then your secret (space after Bearer).
 
-        Routes guarded by **training** admin (`requireTrainingAdmin`) accept **HEY_TRAINING_ADMIN_TOKEN**
-        when set; otherwise they fall back to the same secret as main (**HEY_ADMIN_TOKEN**).
-        Swagger exposes only this scheme so "Authorize" is one field — use whichever secret applies on the server.
+        Use **HEY_ADMIN_TOKEN** for main admin routes. Training routes also accept **HEY_TRAINING_ADMIN_TOKEN**
+        when set on the server; otherwise use the main token.
 
 paths:
   /api/auth/verify-admin:
