@@ -171,16 +171,80 @@ function tryCaptureClip(wavPath, meta) {
   }
 }
 
-// === Optional admin token (Bearer) for mutating APIs ===
-const ADMIN_TOKEN_RAW = (process.env.HEY_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '').trim();
-const ADMIN_TOKEN_ACTIVE = ADMIN_TOKEN_RAW.length > 0;
+const {
+  parseBoolEnv,
+  parsePositiveInt,
+  configureTrustProxy,
+  createHttpsMiddleware,
+  createVerifyAdminGuard,
+  auditMutatingRoute,
+  adminCredentialMatches,
+} = require('./admin-security-phase1');
 
-function timingSafeEqualStrings(a, b) {
-  if (typeof a !== 'string' || typeof b !== 'string') return false;
-  const bufa = Buffer.from(a, 'utf8');
-  const bufb = Buffer.from(b, 'utf8');
-  if (bufa.length !== bufb.length) return false;
-  return crypto.timingSafeEqual(bufa, bufb);
+// === Admin tokens (Bearer) — optional split per surface ===
+// Main SPA + messages/config/logs + custom-head when not docs-only/training-only split
+const ADMIN_TOKEN_RAW = (process.env.HEY_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '').trim();
+/** Optional during rotation — still accepted until removed (narrow window recommended). */
+const ADMIN_TOKEN_PREVIOUS_RAW = (process.env.HEY_ADMIN_TOKEN_PREVIOUS || '').trim();
+/** WAV review + /api/training/* + POST /api/custom-head/train — falls back to HEY_ADMIN_* when unset */
+const TRAINING_ADMIN_TOKEN_RAW = (process.env.HEY_TRAINING_ADMIN_TOKEN || '').trim();
+const TRAINING_ADMIN_TOKEN_PREVIOUS_RAW = (process.env.HEY_TRAINING_ADMIN_TOKEN_PREVIOUS || '').trim();
+/** Swagger /api/docs + GET /api/openapi.yaml + PUT /api/custom-head/clip — falls back to HEY_ADMIN_* when unset */
+const DOCS_ADMIN_TOKEN_RAW = (process.env.HEY_DOCS_ADMIN_TOKEN || '').trim();
+const DOCS_ADMIN_TOKEN_PREVIOUS_RAW = (process.env.HEY_DOCS_ADMIN_TOKEN_PREVIOUS || '').trim();
+
+const MAIN_ADMIN_ACTIVE = ADMIN_TOKEN_RAW.length > 0;
+/** Any admin surface requires auth (used for startup warnings / training catalog flag). */
+const ANY_ADMIN_ACTIVE = MAIN_ADMIN_ACTIVE
+  || (TRAINING_ADMIN_TOKEN_RAW.length > 0)
+  || (DOCS_ADMIN_TOKEN_RAW.length > 0);
+
+/** @returns {{ primary: string, previous: string }} */
+function getMainAdminSecrets() {
+  return { primary: ADMIN_TOKEN_RAW, previous: ADMIN_TOKEN_PREVIOUS_RAW };
+}
+
+/** @returns {{ primary: string, previous: string }} */
+function getTrainingAdminSecrets() {
+  if (TRAINING_ADMIN_TOKEN_RAW.length > 0) {
+    return { primary: TRAINING_ADMIN_TOKEN_RAW, previous: TRAINING_ADMIN_TOKEN_PREVIOUS_RAW };
+  }
+  return getMainAdminSecrets();
+}
+
+/** @returns {{ primary: string, previous: string }} */
+function getDocsAdminSecrets() {
+  if (DOCS_ADMIN_TOKEN_RAW.length > 0) {
+    return { primary: DOCS_ADMIN_TOKEN_RAW, previous: DOCS_ADMIN_TOKEN_PREVIOUS_RAW };
+  }
+  return getMainAdminSecrets();
+}
+
+function verifyAudienceFromBody(body) {
+  const raw = body && typeof body.audience === 'string' ? body.audience.trim().toLowerCase() : '';
+  if (raw === 'training') return 'training';
+  if (raw === 'docs') return 'docs';
+  return 'main';
+}
+
+function secretsForAudience(audience) {
+  if (audience === 'training') return getTrainingAdminSecrets();
+  if (audience === 'docs') return getDocsAdminSecrets();
+  return getMainAdminSecrets();
+}
+
+/** True if this audience effectively requires Bearer (primary secret non-empty after fallback chain). */
+function audienceAuthActive(audience) {
+  return secretsForAudience(audience).primary.length > 0;
+}
+
+function candidateMatchesAudience(candidate, audience) {
+  const { primary, previous } = secretsForAudience(audience);
+  return adminCredentialMatches(candidate, primary, previous);
+}
+
+function trainingAuthRequiredEffective() {
+  return getTrainingAdminSecrets().primary.length > 0;
 }
 
 function getBearerToken(req) {
@@ -190,22 +254,89 @@ function getBearerToken(req) {
   return m ? m[1].trim() : '';
 }
 
-function requireAdmin(req, res, next) {
-  if (!ADMIN_TOKEN_ACTIVE) return next();
+function clientKeyForGuards(req) {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  return typeof ip === 'string' ? ip : String(ip);
+}
+
+const verifyAdminGuard = createVerifyAdminGuard({
+  windowMs: parsePositiveInt(process.env.HEY_VERIFY_ADMIN_RL_WINDOW_MS, 60_000),
+  maxAttempts: parsePositiveInt(process.env.HEY_VERIFY_ADMIN_RL_MAX, 45),
+  lockoutAfterFails: parsePositiveInt(process.env.HEY_VERIFY_ADMIN_LOCKOUT_AFTER_FAILS, 10),
+  lockoutBaseMs: parsePositiveInt(process.env.HEY_VERIFY_ADMIN_LOCKOUT_BASE_MS, 120_000),
+  lockoutMaxMs: parsePositiveInt(process.env.HEY_VERIFY_ADMIN_LOCKOUT_MAX_MS, 3600_000),
+});
+
+/** Rate-limit / lockout middleware for POST /api/auth/verify-admin only */
+function throttleVerifyAdmin(req, res, next) {
+  const audience = verifyAudienceFromBody(req.body);
+  if (!audienceAuthActive(audience)) return next();
+  const key = `${clientKeyForGuards(req)}|${audience}`;
+  const check = verifyAdminGuard.checkAllowed(key);
+  if (check.ok) return next();
+  if (typeof check.retryAfterSec === 'number' && check.retryAfterSec > 0) {
+    res.set('Retry-After', String(check.retryAfterSec));
+  }
+  const payload = check.reason === 'locked_out'
+    ? { error: 'Too many failed attempts — try again later.', code: 'VERIFY_ADMIN_LOCKED' }
+    : { error: 'Too many verify-admin requests — try again later.', code: 'VERIFY_ADMIN_RATE_LIMITED' };
+  return res.status(429).json(payload);
+}
+
+function requireMainAdmin(req, res, next) {
+  if (!MAIN_ADMIN_ACTIVE) return next();
   const sent = getBearerToken(req);
-  if (!sent || !timingSafeEqualStrings(ADMIN_TOKEN_RAW, sent)) {
-    res.set('WWW-Authenticate', 'Bearer realm="hey-admin"');
+  if (!sent || !candidateMatchesAudience(sent, 'main')) {
+    res.set('WWW-Authenticate', 'Bearer realm="hey-main-admin"');
     return res.status(401).json({ error: 'Unauthorized', needsAdminAuth: true });
   }
   next();
 }
 
-if (!ADMIN_TOKEN_ACTIVE) {
+function requireTrainingAdmin(req, res, next) {
+  if (!trainingAuthRequiredEffective()) return next();
+  const sent = getBearerToken(req);
+  if (!sent || !candidateMatchesAudience(sent, 'training')) {
+    res.set('WWW-Authenticate', 'Bearer realm="hey-training-admin"');
+    return res.status(401).json({ error: 'Unauthorized', needsAdminAuth: true });
+  }
+  next();
+}
+
+function requireDocsAdmin(req, res, next) {
+  const secrets = getDocsAdminSecrets();
+  if (!secrets.primary.length) return next();
+  const sent = getBearerToken(req);
+  if (!sent || !candidateMatchesAudience(sent, 'docs')) {
+    res.set('WWW-Authenticate', 'Bearer realm="hey-docs-admin"');
+    return res.status(401).json({ error: 'Unauthorized', needsAdminAuth: true });
+  }
+  next();
+}
+
+if (!ANY_ADMIN_ACTIVE) {
   console.warn(
-    '[security] HEY_ADMIN_TOKEN is unset — anyone who can reach this server can change config or delete messages. Set the env var to require a password.',
+    '[security] No admin tokens set — anyone who can reach this server can use mutating APIs and training/docs where applicable. Set HEY_ADMIN_TOKEN (and optionally HEY_TRAINING_ADMIN_TOKEN / HEY_DOCS_ADMIN_TOKEN).',
   );
 } else {
-  console.log('[security] HEY_ADMIN_TOKEN is set — mutating API routes require Authorization: Bearer …');
+  if (MAIN_ADMIN_ACTIVE) {
+    console.log('[security] HEY_ADMIN_TOKEN is set — main app + config/messages/logs require Authorization: Bearer …');
+    if (ADMIN_TOKEN_PREVIOUS_RAW) {
+      console.log('[security] HEY_ADMIN_TOKEN_PREVIOUS is set — previous main token accepted for rotation overlap');
+    }
+  }
+  if (TRAINING_ADMIN_TOKEN_RAW.length > 0) {
+    console.log('[security] HEY_TRAINING_ADMIN_TOKEN is set — training WAV API + custom-head train use a separate Bearer');
+    if (TRAINING_ADMIN_TOKEN_PREVIOUS_RAW) {
+      console.log('[security] HEY_TRAINING_ADMIN_TOKEN_PREVIOUS is set — training rotation overlap');
+    }
+  }
+  if (DOCS_ADMIN_TOKEN_RAW.length > 0) {
+    console.log('[security] HEY_DOCS_ADMIN_TOKEN is set — /api/docs + OpenAPI YAML + custom-head clip upload use a separate Bearer');
+    if (DOCS_ADMIN_TOKEN_PREVIOUS_RAW) {
+      console.log('[security] HEY_DOCS_ADMIN_TOKEN_PREVIOUS is set — docs rotation overlap');
+    }
+  }
 }
 hey.setAggrTime(config.AGGREGATION_TIMER);
 
@@ -420,6 +551,23 @@ syncHey();
 const app = express();
 const PORT = 5100;
 
+const HEY_REQUIRE_HTTPS = parseBoolEnv(process.env.HEY_REQUIRE_HTTPS, false);
+const HEY_REQUIRE_HTTPS_TRUST_LOOPBACK = parseBoolEnv(
+  process.env.HEY_REQUIRE_HTTPS_TRUST_LOOPBACK,
+  true,
+);
+configureTrustProxy(app, {
+  heyRequireHttps: HEY_REQUIRE_HTTPS,
+  trustProxyRaw: process.env.HEY_TRUST_PROXY,
+});
+app.use(createHttpsMiddleware(HEY_REQUIRE_HTTPS, { trustLoopback: HEY_REQUIRE_HTTPS_TRUST_LOOPBACK }));
+if (HEY_REQUIRE_HTTPS) {
+  const loopNote = HEY_REQUIRE_HTTPS_TRUST_LOOPBACK
+    ? ' — localhost HTTP exempt for health checks'
+    : '';
+  console.log('[security] HTTPS-only mode for API requests' + loopNote);
+}
+
 /** CORS: explicit list wins; else https:// + apex/www from PRIMARY_DOMAIN (same hostname as nginx). */
 function parseCorsOrigins() {
   const raw = (process.env.CORS_ALLOWED_ORIGINS || '').trim();
@@ -449,18 +597,25 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '16kb' }));
 
-/** Public: lets the UI check the typed token before storing it (wrong token → 401 + message). */
-app.post('/api/auth/verify-admin', (req, res) => {
-  if (!ADMIN_TOKEN_ACTIVE) {
-    return res.json({ ok: true, authDisabled: true });
+/**
+ * Public: lets a UI check a typed token before storing it (wrong token → 401 + message).
+ * Body `audience`: `main` (default, SPA lock), `training` (WAV review page), `docs` (Swagger sanity check).
+ */
+app.post('/api/auth/verify-admin', throttleVerifyAdmin, (req, res) => {
+  const audience = verifyAudienceFromBody(req.body);
+  if (!audienceAuthActive(audience)) {
+    return res.json({ ok: true, authDisabled: true, audience });
   }
+  const key = `${clientKeyForGuards(req)}|${audience}`;
   const pwd = req.body && typeof req.body.password === 'string' ? req.body.password.trim() : '';
   const bearer = getBearerToken(req);
   const candidate = pwd || bearer || '';
-  if (!candidate || !timingSafeEqualStrings(ADMIN_TOKEN_RAW, candidate)) {
+  if (!candidate || !candidateMatchesAudience(candidate, audience)) {
+    verifyAdminGuard.recordFailure(key);
     return res.status(401).json({ error: 'Invalid admin token', needsAdminAuth: true });
   }
-  return res.json({ ok: true });
+  verifyAdminGuard.recordSuccess(key);
+  return res.json({ ok: true, audience });
 });
 
 const LOG_TAIL_BYTES_DEFAULT = 384 * 1024;
@@ -498,7 +653,7 @@ async function readBackendLogTail(logAbsPath, maxBytes) {
 }
 
 /** Admin: tail of persistent backend log file (HEY_LOG_DIR/backend.log). */
-app.get('/api/admin/logs', requireAdmin, async (req, res) => {
+app.get('/api/admin/logs', requireMainAdmin, async (req, res) => {
   try {
     const raw = (process.env.HEY_LOG_DIR || '').trim();
     if (!raw) {
@@ -567,7 +722,7 @@ app.get('/api/messages', (req, res) => {
   }
 });
 
-app.put('/api/messages/:id', requireAdmin, (req, res) => {
+app.put('/api/messages/:id', requireMainAdmin, auditMutatingRoute, (req, res) => {
   const { id } = req.params;
   const { text } = req.body;
 
@@ -592,7 +747,7 @@ app.put('/api/messages/:id', requireAdmin, (req, res) => {
   }
 });
 
-app.delete('/api/messages', requireAdmin, (req, res) => {
+app.delete('/api/messages', requireMainAdmin, auditMutatingRoute, (req, res) => {
   const { ids } = req.body;
 
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -621,7 +776,7 @@ app.get('/api/config', (_req, res) => {
   res.json(config);
 });
 
-app.put('/api/config', requireAdmin, (req, res) => {
+app.put('/api/config', requireMainAdmin, auditMutatingRoute, (req, res) => {
   const updates = req.body;
 
   if (typeof updates !== 'object' || updates === null) {
@@ -808,7 +963,7 @@ app.get('/api/custom-head/status', (_req, res) => {
   }
 });
 
-app.post('/api/custom-head/train', requireAdmin, (_req, res) => {
+app.post('/api/custom-head/train', requireTrainingAdmin, auditMutatingRoute, (_req, res) => {
   const trainPy = path.join(__dirname, 'train_custom_head.py');
   if (!fs.existsSync(trainPy)) {
     return res.status(500).json({ error: 'train_custom_head.py not found' });
@@ -852,7 +1007,7 @@ app.post('/api/custom-head/train', requireAdmin, (_req, res) => {
   });
 });
 
-app.put('/api/custom-head/clip/:label', requireAdmin, (req, res) => {
+app.put('/api/custom-head/clip/:label', requireDocsAdmin, auditMutatingRoute, (req, res) => {
   const label = req.params.label;
   if (label !== 'bark' && label !== 'not_bark') {
     return res.status(400).json({ error: 'label must be bark or not_bark' });
@@ -973,7 +1128,7 @@ app.get('/api/training/listen', (_req, res) => {
   }
 });
 
-app.get('/api/training/audio-catalog', requireAdmin, (_req, res) => {
+app.get('/api/training/audio-catalog', requireTrainingAdmin, (_req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.set('Pragma', 'no-cache');
@@ -1000,7 +1155,7 @@ app.get('/api/training/audio-catalog', requireAdmin, (_req, res) => {
       not_bark: listWavsInDataSubdir(path.join('custom_clips', 'not_bark'), { mergeSidecarJson: true }),
     };
     res.json({
-      adminRequired: ADMIN_TOKEN_ACTIVE,
+      adminRequired: trainingAuthRequiredEffective(),
       inbox,
       micTemp,
       custom,
@@ -1011,7 +1166,7 @@ app.get('/api/training/audio-catalog', requireAdmin, (_req, res) => {
   }
 });
 
-app.get('/api/training/mic-temp/:filename/audio', requireAdmin, (req, res) => {
+app.get('/api/training/mic-temp/:filename/audio', requireTrainingAdmin, (req, res) => {
   const fn = path.basename(req.params.filename || '');
   if (!SAFE_MIC_WAV_RE.test(fn)) {
     return res.status(400).json({ error: 'invalid filename' });
@@ -1037,7 +1192,7 @@ app.get('/api/training/mic-temp/:filename/audio', requireAdmin, (req, res) => {
   fs.createReadStream(full).pipe(res);
 });
 
-app.get('/api/training/custom-clips/:label/:filename/audio', requireAdmin, (req, res) => {
+app.get('/api/training/custom-clips/:label/:filename/audio', requireTrainingAdmin, (req, res) => {
   const label = req.params.label;
   if (label !== 'bark' && label !== 'not_bark') {
     return res.status(400).json({ error: 'label must be bark or not_bark' });
@@ -1063,7 +1218,7 @@ app.get('/api/training/custom-clips/:label/:filename/audio', requireAdmin, (req,
   fs.createReadStream(full).pipe(res);
 });
 
-app.get('/api/training/inbox', requireAdmin, (_req, res) => {
+app.get('/api/training/inbox', requireTrainingAdmin, (_req, res) => {
   try {
     const rows = trainingInbox.listInbox(__dirname);
     res.json({
@@ -1077,7 +1232,7 @@ app.get('/api/training/inbox', requireAdmin, (_req, res) => {
   }
 });
 
-app.delete('/api/training/inbox', requireAdmin, (_req, res) => {
+app.delete('/api/training/inbox', requireTrainingAdmin, auditMutatingRoute, (_req, res) => {
   try {
     const { removedFiles } = trainingInbox.clearEntireInbox(__dirname);
     res.json({ ok: true, removedFiles });
@@ -1088,7 +1243,7 @@ app.delete('/api/training/inbox', requireAdmin, (_req, res) => {
 });
 
 /** JSON: RMS from PCM + capturedAt (inbox JSON or custom_clips sidecar). Used by training-listen pasted IDs. */
-app.get('/api/training/inbox/:clipId/wav-meta', requireAdmin, (req, res) => {
+app.get('/api/training/inbox/:clipId/wav-meta', requireTrainingAdmin, (req, res) => {
   const { clipId } = req.params;
   if (!CLIP_ID_RE.test(clipId)) {
     return res.status(400).json({ error: 'invalid clipId' });
@@ -1121,7 +1276,7 @@ app.get('/api/training/inbox/:clipId/wav-meta', requireAdmin, (req, res) => {
   res.json({ clipId, rms, capturedAt });
 });
 
-app.get('/api/training/inbox/:clipId/audio', requireAdmin, (req, res) => {
+app.get('/api/training/inbox/:clipId/audio', requireTrainingAdmin, (req, res) => {
   const { clipId } = req.params;
   if (!CLIP_ID_RE.test(clipId)) {
     return res.status(400).json({ error: 'invalid clipId' });
@@ -1142,7 +1297,7 @@ app.get('/api/training/inbox/:clipId/audio', requireAdmin, (req, res) => {
   fs.createReadStream(wav).pipe(res);
 });
 
-app.post('/api/training/inbox/:clipId/promote', requireAdmin, (req, res) => {
+app.post('/api/training/inbox/:clipId/promote', requireTrainingAdmin, auditMutatingRoute, (req, res) => {
   const { clipId } = req.params;
   if (!CLIP_ID_RE.test(clipId)) {
     return res.status(400).json({ error: 'invalid clipId' });
@@ -1158,7 +1313,7 @@ app.post('/api/training/inbox/:clipId/promote', requireAdmin, (req, res) => {
   res.json({ ok: true, saved: out.saved, message: 'Run POST /api/custom-head/train to retrain the head.' });
 });
 
-app.delete('/api/training/inbox/:clipId', requireAdmin, (req, res) => {
+app.delete('/api/training/inbox/:clipId', requireTrainingAdmin, auditMutatingRoute, (req, res) => {
   const { clipId } = req.params;
   if (!CLIP_ID_RE.test(clipId)) {
     return res.status(400).json({ error: 'invalid clipId' });
@@ -1216,7 +1371,7 @@ if (openApiSpec && openApiSpec.info) {
   openApiSpec.info.title = siteApiTitle();
 }
 
-app.get('/api/openapi.yaml', (_req, res) => {
+app.get('/api/openapi.yaml', requireDocsAdmin, (_req, res) => {
   res.type('text/yaml; charset=utf-8');
   res.send(yaml.dump(openApiSpec, { lineWidth: -1 }));
 });
@@ -1229,6 +1384,7 @@ const swaggerUiAuthorizeInputScript = `(function(){var r=document.getElementById
 
 app.use(
   '/api/docs',
+  requireDocsAdmin,
   swaggerUi.serve,
   swaggerUi.setup(openApiSpec, {
     customCss: '.swagger-ui .topbar { display: none }',

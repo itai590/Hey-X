@@ -212,16 +212,28 @@ describe('Training inbox API', () => {
 });
 
 describe('OpenAPI', () => {
-  test('GET /api/openapi.yaml returns YAML', async () => {
+  test('GET /api/openapi.yaml requires admin', async () => {
     const res = await request(app).get('/api/openapi.yaml');
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type'] || '').toMatch(/yaml/);
-    expect(res.text).toContain('openapi:');
-    expect(res.text).toMatch(/title:\s*Hey(\s+[^\n]+)?\s+API/);
+    expect(res.status).toBe(401);
   });
 
-  test('GET /api/docs serves Swagger UI page', async () => {
+  test('GET /api/openapi.yaml with auth returns YAML', async () => {
+    const res = await request(app).get('/api/openapi.yaml');
+    const authed = await request(app).get('/api/openapi.yaml').set(auth);
+    expect(res.status).toBe(401);
+    expect(authed.status).toBe(200);
+    expect(authed.headers['content-type'] || '').toMatch(/yaml/);
+    expect(authed.text).toContain('openapi:');
+    expect(authed.text).toMatch(/title:\s*Hey(\s+[^\n]+)?\s+API/);
+  });
+
+  test('GET /api/docs requires admin', async () => {
     const res = await request(app).get('/api/docs/');
+    expect(res.status).toBe(401);
+  });
+
+  test('GET /api/docs with auth serves Swagger UI page', async () => {
+    const res = await request(app).get('/api/docs/').set(auth);
     expect(res.status).toBe(200);
     expect(res.headers['content-type'] || '').toMatch(/html/);
     expect(res.text.toLowerCase()).toContain('swagger');

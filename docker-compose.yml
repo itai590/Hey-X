@@ -35,6 +35,12 @@ services:
       - PRIMARY_DOMAIN=${PRIMARY_DOMAIN}
       - HEY_CONFIG_PATH=/app/backend/data/config.json
       - HEY_ADMIN_TOKEN=${HEY_ADMIN_TOKEN}
+      - HEY_ADMIN_TOKEN_PREVIOUS=${HEY_ADMIN_TOKEN_PREVIOUS:-}
+      - HEY_TRAINING_ADMIN_TOKEN=${HEY_TRAINING_ADMIN_TOKEN:-}
+      - HEY_TRAINING_ADMIN_TOKEN_PREVIOUS=${HEY_TRAINING_ADMIN_TOKEN_PREVIOUS:-}
+      - HEY_DOCS_ADMIN_TOKEN=${HEY_DOCS_ADMIN_TOKEN:-}
+      - HEY_DOCS_ADMIN_TOKEN_PREVIOUS=${HEY_DOCS_ADMIN_TOKEN_PREVIOUS:-}
+      - HEY_REQUIRE_HTTPS=${HEY_REQUIRE_HTTPS:-true}
       - NGINX_LOG_PATH=/var/log/nginx/access.log
       - ALERT_COOLDOWN_MINUTES=5 # suspicious-request alert cool down time
       - ALERT_LOG_CONFIG_PROBE_404=${ALERT_LOG_CONFIG_PROBE_404:-true}
@@ -52,7 +58,7 @@ services:
     container_name: hey-${DOG_SLUG}-health-watch
     image: hey-${DOG_SLUG}-backend
     restart: always
-    command: [ "npm", "run", "health-watch" ]
+    command: ["npm", "run", "health-watch"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
@@ -100,7 +106,7 @@ services:
       - /var/lib/letsencrypt:/var/lib/letsencrypt
       - nginx-logs:/var/log/nginx
     healthcheck:
-      test: [ "CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health" ]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health"]
       interval: 15s
       timeout: 5s
       retries: 4
@@ -112,7 +118,8 @@ services:
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt
       - /var/lib/letsencrypt:/var/lib/letsencrypt
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h &
+    entrypoint:
+      "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h &
       wait $${!}; done;'"
 
 volumes:

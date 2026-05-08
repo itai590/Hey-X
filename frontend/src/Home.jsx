@@ -112,6 +112,7 @@ export default function Home() {
   const mqShortHeight = useMediaQuery('(max-height: 520px)', { noSsr: true });
   const mqLandscapeNarrow = useMediaQuery('(orientation: landscape) and (max-width: 960px)', { noSsr: true });
   const isMobile = useMediaQuery('(max-width: 600px)', { noSsr: true });
+  const collapseMessages = !isMobile;
   /** Short but wide: landscape phones even when orientation / height media queries lie */
   const mqWideShort = useMediaQuery('(max-height: 560px) and (min-width: 480px)', { noSsr: true });
   const compactHeaderRow = mqLandscapeNarrow || mqWideShort;
@@ -959,7 +960,7 @@ export default function Home() {
                     px: { xs: 3.5, sm: 5 },
                   }}
                 >
-                  {isMobile && shouldCollapseMessage(msg.text) && (
+                  {collapseMessages && shouldCollapseMessage(msg.text) && (
                     <Box sx={{ display: 'flex', justifyContent: 'center', mb: 0.25 }}>
                       <Button
                         size="small"
@@ -1000,7 +1001,7 @@ export default function Home() {
                       fontSize: { xs: '1rem', sm: '1.0625rem', md: '1.125rem' },
                       color: 'rgba(245, 235, 224, 0.88)',
                       mt: 0.5,
-                      ...(isMobile && shouldCollapseMessage(msg.text) && !expandedMessages.has(msg.id)
+                      ...(collapseMessages && shouldCollapseMessage(msg.text) && !expandedMessages.has(msg.id)
                         ? {
                             display: '-webkit-box',
                             WebkitLineClamp: 2,

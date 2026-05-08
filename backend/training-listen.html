@@ -78,24 +78,117 @@
       transform: rotate(-90deg);
     }
     details.catalog-section .section-body { padding-left: 0.15rem; }
-    .token-row { margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
-    .token-row label { font-weight: 600; color: var(--text); }
-    #admin-username, #token {
+    .training-toolbar {
+      margin-bottom: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      align-items: center;
+    }
+    .training-toolbar .training-toolbar-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
       flex: 1;
       min-width: 12rem;
-      max-width: 28rem;
-      padding: 0.45rem 0.65rem;
-      border-radius: 8px;
+    }
+    .lock-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.65rem;
+      height: 2.65rem;
+      padding: 0;
+      border-radius: 12px;
+      border: 1px solid var(--border-strong);
+      background: var(--bg-elev);
+      color: var(--text);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .lock-btn:hover:not(:disabled) {
+      border-color: rgba(220, 198, 168, 0.45);
+    }
+    .lock-btn:active:not(:disabled) { transform: scale(0.97); }
+    .lock-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .lock-btn svg { width: 1.35rem; height: 1.35rem; }
+    .lock-btn.unlocked svg { color: #a5d6a7; }
+    .training-auth-caption {
+      font-size: 0.84rem;
+      color: var(--text-muted);
+      min-width: 8rem;
+      flex: 1 1 10rem;
+    }
+    .training-auth-caption.unlocked span { color: #a5d6a7; font-weight: 600; }
+
+    dialog.training-login-dialog {
+      border: none;
+      border-radius: 16px;
+      padding: 0;
+      max-width: calc(100vw - 2rem);
+      width: min(22rem, 100%);
+      background: var(--bg-card);
+      color: var(--text);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-strong);
+    }
+    dialog.training-login-dialog::backdrop {
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(4px);
+    }
+    .training-login-inner { padding: 1.35rem 1.35rem 1.1rem; }
+    .training-login-inner h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.08rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .training-login-inner .training-login-hint {
+      margin: 0 0 1rem;
+      font-size: 0.86rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+    .training-login-field {
+      margin-bottom: 0.85rem;
+    }
+    .training-login-field label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: rgba(245, 235, 224, 0.85);
+      margin-bottom: 0.35rem;
+    }
+    .training-login-field input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.5rem 0.65rem;
+      border-radius: 10px;
       border: 1px solid var(--border-strong);
       background: var(--field-fill);
       color: var(--text);
       font-size: 0.95rem;
     }
-    #admin-username::placeholder, #token::placeholder { color: var(--text-muted); }
-    #admin-username:focus, #token:focus {
+    .training-login-field input:focus {
       outline: none;
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+    .training-login-error {
+      min-height: 1.25rem;
+      margin: -0.2rem 0 0.5rem;
+      font-size: 0.82rem;
+      color: #ff8a80;
+    }
+    .training-login-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      margin-top: 0.85rem;
     }
     .clip {
       position: relative;
@@ -268,34 +361,47 @@
     <strong>Train</strong> runs <code>POST /api/custom-head/train</code> on the server (rebuilds the head from <code>custom_clips</code>; can take a while).
     <strong>Clear training inbox</strong> deletes every WAV and JSON under <code>data/training_inbox</code> (not custom clips); you will be asked to confirm.
   </p>
-  <form class="token-row" id="admin-token-form" autocomplete="on">
-    <label for="admin-username">Username</label>
-    <input
-      id="admin-username"
-      name="username"
-      type="text"
-      autocomplete="username"
-      autocapitalize="off"
-      autocorrect="off"
-      spellcheck="false"
-      placeholder="admin"
-    />
-    <label for="token">Password</label>
-    <input
-      id="token"
-      name="password"
-      type="password"
-      autocomplete="current-password"
-      autocapitalize="off"
-      autocorrect="off"
-      spellcheck="false"
-      placeholder="HEY_ADMIN_TOKEN"
-    />
-    <button type="button" id="load">Load all clips</button>
-    <button type="button" id="refresh-catalog">Refresh</button>
-    <button type="button" id="train-custom-head" class="btn-accent" title="POST /api/custom-head/train — retrains from custom_clips">Train</button>
-    <button type="button" id="clear-inbox" class="btn-danger" title="Deletes all files in data/training_inbox">Clear training inbox</button>
-  </form>
+  <div class="training-toolbar" id="training-toolbar">
+    <button type="button" class="lock-btn" id="training-lock-btn" aria-label="Training sign-in" title="Training sign-in or sign-out">
+      <svg id="training-svg-locked" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </svg>
+      <svg id="training-svg-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" hidden>
+        <rect x="4" y="11" width="16" height="10" rx="2" ry="2" />
+        <path d="M12 11V7a4 4 0 0 1 7.5-2" />
+      </svg>
+    </button>
+    <span class="training-auth-caption" id="training-auth-caption"></span>
+    <div class="training-toolbar-actions">
+      <button type="button" id="load">Load all clips</button>
+      <button type="button" id="refresh-catalog">Refresh</button>
+      <button type="button" id="train-custom-head" class="btn-accent" title="POST /api/custom-head/train — retrains from custom_clips">Train</button>
+      <button type="button" id="clear-inbox" class="btn-danger" title="Deletes all files in data/training_inbox">Clear training inbox</button>
+    </div>
+  </div>
+
+  <dialog id="training-login-dialog" class="training-login-dialog" aria-labelledby="training-login-title">
+    <div class="training-login-inner">
+      <h2 id="training-login-title">Training login</h2>
+      <p class="training-login-hint">
+        Same secret as your server&apos;s training admin token (<code style="font-size:0.82em;">HEY_TRAINING_ADMIN_TOKEN</code> when set; otherwise <code style="font-size:0.82em;">HEY_ADMIN_TOKEN</code>). Kept in this tab until you sign out or close it.
+      </p>
+      <div class="training-login-field">
+        <label for="training-modal-username">Username</label>
+        <input id="training-modal-username" name="hey-training-display-name" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      </div>
+      <div class="training-login-field">
+        <label for="training-modal-password">Password</label>
+        <input id="training-modal-password" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      </div>
+      <div class="training-login-error" id="training-login-error" role="alert"></div>
+      <div class="training-login-actions">
+        <button type="button" id="training-login-cancel">Cancel</button>
+        <button type="button" class="btn-accent" id="training-login-submit">Save session</button>
+      </div>
+    </div>
+  </dialog>
 
   <section>
     <h2>Hear clips by ID</h2>
@@ -313,22 +419,6 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
   <div id="out"></div>
 
   <script>
-    /** Same sessionStorage key as the React app (`authStorage.js`); avoids re-entering the token after main UI login. */
-    (function prefillAdminTokenFromHeyUi() {
-      try {
-        var inp = document.getElementById('token');
-        var userInp = document.getElementById('admin-username');
-        var t = sessionStorage.getItem('hey-admin-token');
-        if (userInp && !String(userInp.value || '').trim()) userInp.value = 'admin';
-        if (inp && t && typeof t === 'string' && !String(inp.value).trim()) inp.value = t;
-      } catch (e) { /* private mode */ }
-    })();
-    (function keepTokenFormNonSubmitting() {
-      var form = document.getElementById('admin-token-form');
-      if (!form) return;
-      form.addEventListener('submit', function (e) { e.preventDefault(); });
-    })();
-
     /**
      * SPA often served under PUBLIC_URL basename (e.g. /hey-x-sheldon). This page URL is …/basename/api/training/listen —
      * raw fetch('/api/...') wrongly hits the origin root and returns HTTP 404. Mirror frontend `BASE_URL`: prefix `/api`.
@@ -351,6 +441,211 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       if (pre && (q === pre || q.indexOf(pre + '/') === 0)) return q;
       return pre + q;
     }
+
+    var HEY_TRAINING_SESSION_KEY = 'hey-training-admin-token';
+    /** null unknown, true requires Bearer, false server has no training password */
+    var serverTrainingPasswordRequired = null;
+    /** busy flag for catalog train/clear disabling */
+    var catalogActionsBusy = false;
+
+    function getTrainingSessionToken() {
+      try {
+        var t = sessionStorage.getItem(HEY_TRAINING_SESSION_KEY);
+        return t && typeof t === 'string' ? t.trim() : '';
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function setTrainingSessionToken(token) {
+      try {
+        if (token && String(token).trim()) sessionStorage.setItem(HEY_TRAINING_SESSION_KEY, String(token).trim());
+        else sessionStorage.removeItem(HEY_TRAINING_SESSION_KEY);
+      } catch (e) { /* private mode */ }
+    }
+
+    function trainingActionsAllowed() {
+      if (serverTrainingPasswordRequired === false) return true;
+      if (serverTrainingPasswordRequired === true && getTrainingSessionToken()) return true;
+      return false;
+    }
+
+    function applyToolbarButtonState() {
+      var blocked = catalogActionsBusy || !trainingActionsAllowed();
+      ['load', 'refresh-catalog', 'train-custom-head', 'clear-inbox'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.disabled = !!blocked;
+      });
+      var hear = document.getElementById('hear-ids');
+      if (hear) hear.disabled = !!blocked;
+    }
+
+    function refreshTrainingAuthChrome() {
+      var lockBtn = document.getElementById('training-lock-btn');
+      var cap = document.getElementById('training-auth-caption');
+      var svgL = document.getElementById('training-svg-locked');
+      var svgO = document.getElementById('training-svg-open');
+      if (!lockBtn || !cap) return;
+
+      if (serverTrainingPasswordRequired === null) {
+        lockBtn.disabled = true;
+        cap.textContent = 'Checking authentication…';
+        cap.classList.remove('unlocked');
+        lockBtn.classList.remove('unlocked');
+        if (svgL) svgL.hidden = false;
+        if (svgO) svgO.hidden = true;
+      } else if (serverTrainingPasswordRequired === false) {
+        lockBtn.disabled = false;
+        lockBtn.title = 'No training password configured on server';
+        lockBtn.classList.add('unlocked');
+        cap.classList.add('unlocked');
+        cap.innerHTML = '<span>Unlocked</span> — API open (no login required)';
+        if (svgL) svgL.hidden = true;
+        if (svgO) svgO.hidden = false;
+      } else {
+        lockBtn.disabled = false;
+        var tok = getTrainingSessionToken();
+        if (tok) {
+          lockBtn.title = 'Sign out (clear training session for this tab)';
+          lockBtn.setAttribute('aria-label', 'Sign out training session');
+          lockBtn.classList.add('unlocked');
+          cap.classList.add('unlocked');
+          cap.innerHTML = '<span>Unlocked</span> — Training session saved in this tab';
+          if (svgL) svgL.hidden = true;
+          if (svgO) svgO.hidden = false;
+        } else {
+          lockBtn.title = 'Sign in — open training login';
+          lockBtn.setAttribute('aria-label', 'Training sign-in');
+          lockBtn.classList.remove('unlocked');
+          cap.classList.remove('unlocked');
+          cap.innerHTML = '<span>Locked</span> — tap the lock to sign in';
+          if (svgL) svgL.hidden = false;
+          if (svgO) svgO.hidden = true;
+        }
+      }
+      applyToolbarButtonState();
+    }
+
+    function probeServerTrainingPassword() {
+      return fetch(heyApi('/api/training/audio-catalog'), { cache: 'no-store' })
+        .then(function (r) {
+          if (r.status === 401) return { required: true };
+          if (!r.ok) return { required: true };
+          return r.json().then(function (data) {
+            return { required: !!(data && data.adminRequired) };
+          });
+        })
+        .catch(function () {
+          return { required: true };
+        });
+    }
+
+    function openTrainingLoginModal() {
+      var dlg = document.getElementById('training-login-dialog');
+      var err = document.getElementById('training-login-error');
+      var u = document.getElementById('training-modal-username');
+      var p = document.getElementById('training-modal-password');
+      if (!dlg) return;
+      if (err) err.textContent = '';
+      if (u) u.value = '';
+      if (p) p.value = '';
+      try {
+        if (typeof dlg.showModal === 'function') dlg.showModal();
+        else window.alert('This browser does not support the login dialog. Use a newer browser.');
+      } catch (e) {
+        console.error(e);
+      }
+      window.setTimeout(function () {
+        if (u && u.focus) u.focus();
+      }, 60);
+    }
+
+    function closeTrainingLoginModal() {
+      var dlg = document.getElementById('training-login-dialog');
+      if (dlg && typeof dlg.close === 'function') dlg.close();
+    }
+
+    function submitTrainingLogin() {
+      var err = document.getElementById('training-login-error');
+      var userEl = document.getElementById('training-modal-username');
+      var passEl = document.getElementById('training-modal-password');
+      var pwd = passEl && passEl.value ? String(passEl.value).trim() : '';
+      var user = userEl && userEl.value ? String(userEl.value).trim() : '';
+      if (err) err.textContent = '';
+      if (!user || !pwd) {
+        if (err) err.textContent = 'Enter username and password.';
+        return;
+      }
+
+      fetch(heyApi('/api/auth/verify-admin'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pwd, audience: 'training' }),
+      })
+        .then(function (r) {
+          return r.json().then(function (body) {
+            return { ok: r.ok, body: body };
+          });
+        })
+        .then(function (x) {
+          if (x.body && x.body.authDisabled === true) {
+            setTrainingSessionToken('');
+            serverTrainingPasswordRequired = false;
+            closeTrainingLoginModal();
+            refreshTrainingAuthChrome();
+            return;
+          }
+          if (!x.ok || !x.body || !x.body.ok) {
+            if (err) {
+              err.textContent = (x.body && typeof x.body.error === 'string')
+                ? x.body.error
+                : 'Invalid training password';
+            }
+            return;
+          }
+          setTrainingSessionToken(pwd);
+          closeTrainingLoginModal();
+          refreshTrainingAuthChrome();
+        })
+        .catch(function () {
+          if (err) err.textContent = 'Could not verify — check network and try again';
+        });
+    }
+
+    (function bindTrainingLoginUi() {
+      var lockBtn = document.getElementById('training-lock-btn');
+      if (lockBtn) {
+        lockBtn.addEventListener('click', function () {
+          if (serverTrainingPasswordRequired !== true) return;
+          var tok = getTrainingSessionToken();
+          if (!tok) {
+            openTrainingLoginModal();
+          } else if (window.confirm('Sign out and clear this tab’s training password?')) {
+            setTrainingSessionToken('');
+            refreshTrainingAuthChrome();
+          }
+        });
+      }
+      var cancelBtn = document.getElementById('training-login-cancel');
+      if (cancelBtn) cancelBtn.addEventListener('click', closeTrainingLoginModal);
+      var submitBtn = document.getElementById('training-login-submit');
+      if (submitBtn) submitBtn.addEventListener('click', submitTrainingLogin);
+      var dlg = document.getElementById('training-login-dialog');
+      var pwdIn = document.getElementById('training-modal-password');
+      if (pwdIn) {
+        pwdIn.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Enter') {
+            ev.preventDefault();
+            submitTrainingLogin();
+          }
+        });
+      }
+
+      probeServerTrainingPassword().then(function (p) {
+        serverTrainingPasswordRequired = !!(p && p.required);
+        refreshTrainingAuthChrome();
+      });
+    })();
 
     /** Display ISO times in the configured zone (DST per IANA). Stored values remain UTC in JSON. */
     function formatTimeIL(iso) {
@@ -377,7 +672,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     }
 
     function authHeaders() {
-      var t = document.getElementById('token').value.trim();
+      var t = serverTrainingPasswordRequired === false ? '' : getTrainingSessionToken();
       var h = {};
       if (t) h['Authorization'] = 'Bearer ' + t;
       return h;
@@ -628,14 +923,8 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     })();
 
     function setCatalogButtonsBusy(busy) {
-      var loadBtn = document.getElementById('load');
-      var refreshBtn = document.getElementById('refresh-catalog');
-      var trainBtn = document.getElementById('train-custom-head');
-      var clearBtn = document.getElementById('clear-inbox');
-      if (loadBtn) loadBtn.disabled = !!busy;
-      if (refreshBtn) refreshBtn.disabled = !!busy;
-      if (trainBtn) trainBtn.disabled = !!busy;
-      if (clearBtn) clearBtn.disabled = !!busy;
+      catalogActionsBusy = !!busy;
+      applyToolbarButtonState();
     }
 
     function loadAudioCatalog() {
@@ -648,15 +937,15 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       fetch(heyApi('/api/training/audio-catalog'), { headers: authHeaders(), cache: 'no-store' })
         .then(function (r) {
           if (r.status === 401) {
-            throw new Error('Unauthorized — enter the same token as HEY_ADMIN_TOKEN.');
+            throw new Error('Unauthorized — open the lock icon and sign in with your training password.');
           }
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
         })
         .then(function (data) {
           status.textContent = '';
-          if (data.adminRequired && !document.getElementById('token').value.trim()) {
-            status.textContent = 'Tip: this server requires a token — paste it above and click Load or Refresh.';
+          if (data.adminRequired && !getTrainingSessionToken()) {
+            status.textContent = 'Tip: tap the lock to sign in, then Refresh.';
           }
 
           var inboxRows = data.inbox || [];
@@ -765,7 +1054,8 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         })
         .then(function (x) {
           if (x.status === 401) {
-            status.innerHTML = '<span class="err">Unauthorized — paste HEY_ADMIN_TOKEN above.</span>';
+            status.innerHTML =
+              '<span class="err">Unauthorized — tap the lock to sign in with your training password.</span>';
             return;
           }
           if (x.ok && x.j && x.j.ok) {
@@ -856,7 +1146,8 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         })
         .then(function (x) {
           if (x.status === 401) {
-            status.innerHTML = '<span class="err">Unauthorized — paste HEY_ADMIN_TOKEN above.</span>';
+            status.innerHTML =
+              '<span class="err">Unauthorized — tap the lock to sign in with your training password.</span>';
             setCatalogButtonsBusy(false);
             return;
           }

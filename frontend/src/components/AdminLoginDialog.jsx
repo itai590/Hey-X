@@ -24,7 +24,7 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
 
   useEffect(() => {
     if (open) {
-      setUsername('admin');
+      setUsername('');
       setPassword('');
       setError('');
       setShowPassword(false);
@@ -33,9 +33,10 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
   }, [open]);
 
   const submit = async () => {
+    const u = username.trim();
     const t = password.trim();
-    if (!t) {
-      setError('Enter the admin password');
+    if (!u || !t) {
+      setError('Enter username and admin password');
       return;
     }
     setError('');
@@ -44,7 +45,7 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
       const res = await fetch(apiUrl('/auth/verify-admin'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: t }),
+        body: JSON.stringify({ username: u, password: t, audience: 'main' }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -105,15 +106,15 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
           </Typography>{' '}
           on the Pi. Stored in this browser tab until you close it.
         </Typography>
-        <Box component="form" autoComplete="on" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+        <Box component="form" autoComplete="off" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
           <TextField
             autoFocus
             fullWidth
             variant="outlined"
             type="text"
             label="Username"
-            name="username"
-            autoComplete="username"
+            name="hey-admin-display-name"
+            autoComplete="off"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             sx={{
@@ -126,6 +127,7 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
               autoCapitalize: 'none',
               autoCorrect: 'off',
               spellCheck: false,
+              autoComplete: 'off',
             }}
           />
           <TextField

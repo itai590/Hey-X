@@ -5,8 +5,13 @@ info:
   description: |
     Backend for bark detection, SQLite messages, and WAV training workflows.
 
-    **Admin routes** use `Authorization: Bearer <HEY_ADMIN_TOKEN>` when that env var is set.
-    When unset, mutating routes may still be open — prefer setting the token in production.
+    **Admin routes** use `Authorization: Bearer` with a secret from env (optional split):
+    - Default: `HEY_ADMIN_TOKEN` (+ optional `HEY_ADMIN_TOKEN_PREVIOUS` during rotation).
+    - **Training** (`/api/training/*`, `POST /api/custom-head/train`): `HEY_TRAINING_ADMIN_TOKEN` when set, else same as main.
+    - **Docs** (this YAML, `/api/docs`, `PUT /api/custom-head/clip`): `HEY_DOCS_ADMIN_TOKEN` when set, else same as main.
+
+    With `HEY_REQUIRE_HTTPS=true`, non-HTTPS requests are rejected (`403`) unless exempted (localhost when `HEY_REQUIRE_HTTPS_TRUST_LOOPBACK=true`).
+    Failed `verify-admin` attempts are rate-limited and may return `429` with `Retry-After`.
   version: 1.0.0
 
 servers:
@@ -23,10 +28,18 @@ tags:
 
 components:
   securitySchemes:
-    bearerAuth:
+    bearerMainAuth:
       type: http
       scheme: bearer
-      bearerFormat: HEY_ADMIN_TOKEN
+      description: HEY_ADMIN_TOKEN (SPA — messages, config, admin logs)
+    bearerTrainingAuth:
+      type: http
+      scheme: bearer
+      description: HEY_TRAINING_ADMIN_TOKEN or HEY_ADMIN_TOKEN if training token unset
+    bearerDocsAuth:
+      type: http
+      scheme: bearer
+      description: HEY_DOCS_ADMIN_TOKEN or HEY_ADMIN_TOKEN if docs token unset (Swagger + clip upload)
 
 paths:
   /api/auth/verify-admin:
@@ -42,7 +55,12 @@ paths:
               properties:
                 password:
                   type: string
-                  description: Same value as HEY_ADMIN_TOKEN (alternative to Bearer header)
+                  description: Secret for the chosen audience (alternative to Bearer header on this request)
+                audience:
+                  type: string
+                  enum: [main, training, docs]
+                  default: main
+                  description: Which env secret to check (main SPA / training WAV API / docs+clip upload)
       responses:
         "200":
           description: OK
@@ -52,11 +70,19 @@ paths:
                 type: object
                 properties:
                   ok: { type: boolean }
+                  audience:
+                    type: string
+                    enum: [ main, training, docs ]
+                    description: Confirms which credential was verified
                   authDisabled:
                     type: boolean
-                    description: Present when HEY_ADMIN_TOKEN is unset
+                    description: Present when no secret applies for that audience
         "401":
           description: Invalid credentials
+        "403":
+          description: HTTPS required (`HEY_REQUIRE_HTTPS`); body may include code `HTTPS_REQUIRED`
+        "429":
+          description: Too many verify-admin attempts or temporary lockout; may include codes `VERIFY_ADMIN_RATE_LIMITED` or `VERIFY_ADMIN_LOCKED`
 
   /api/messages:
     get:
@@ -75,7 +101,7 @@ paths:
       tags: [ Messages ]
       summary: Delete messages by ids
       security:
-        - bearerAuth: []
+        - bearerMainAuth: []
       requestBody:
         required: true
         content:
@@ -100,7 +126,7 @@ paths:
       tags: [ Messages ]
       summary: Create or update a message
       security:
-        - bearerAuth: []
+        - bearerMainAuth: []
       parameters:
         - name: id
           in: path
@@ -136,7 +162,7 @@ paths:
       tags: [ Config ]
       summary: Update allowed config keys
       security:
-        - bearerAuth: []
+        - bearerMainAuth: []
       requestBody:
         required: true
         content:
@@ -167,7 +193,7 @@ paths:
       tags: [ CustomHead ]
       summary: Run Python train_custom_head.py
       security:
-        - bearerAuth: []
+        - bearerTrainingAuth: []
       responses:
         "200":
           description: Training finished
@@ -181,7 +207,7 @@ paths:
       tags: [ CustomHead ]
       summary: Upload a WAV clip into custom_clips/{label}
       security:
-        - bearerAuth: []
+        - bearerDocsAuth: []
       parameters:
         - name: label
           in: path
@@ -221,7 +247,7 @@ paths:
       tags: [ Training ]
       summary: JSON listing of inbox, mic_temp, and custom clip WAVs
       security:
-        - bearerAuth: []
+        - bearerTrainingAuth: []
       responses:
         "200":
           description: Catalog
@@ -233,7 +259,7 @@ paths:
       tags: [ Training ]
       summary: Stream a mic temp WAV (e.g. clip-1777557607959.wav)
       security:
-        - bearerAuth: []
+        - bearerTrainingAuth: []
       parameters:
         - name: filename
           in: path
@@ -259,7 +285,7 @@ paths:
       tags: [ Training ]
       summary: Stream a WAV from data/custom_clips/{label}
       security:
-        - bearerAuth: []
+        - bearerTrainingAuth: []
       parameters:
         - name: label
           in: path
@@ -285,7 +311,7 @@ paths:
       tags: [ Training ]
       summary: List training inbox clips with metadata
       security:
-        - bearerAuth: []
+        - bearerTrainingAuth: []
       responses:
         "200":
           description: Inbox list
@@ -296,7 +322,7 @@ paths:
       summary: Remove all WAV and JSON files from the training inbox directory
       description: Does not delete clips already under custom_clips.
       security:
-        - bearerAuth: []
+        - bearerTrainingAuth: []
       responses:
         "200":
           description: Cleared
@@ -319,7 +345,7 @@ paths:
       tags: [ Training ]
       summary: Stream training inbox WAV by UUID
       security:
-        - bearerAuth: []
+        - bearerTrainingAuth: []
       parameters:
         - name: clipId
           in: path
@@ -342,7 +368,7 @@ paths:
       tags: [ Training ]
       summary: Move clip from inbox to custom_clips for labeling
       security:
-        - bearerAuth: []
+        - bearerTrainingAuth: []
       parameters:
         - name: clipId
           in: path
@@ -376,7 +402,7 @@ paths:
       tags: [ Training ]
       summary: Remove clip from training inbox
       security:
-        - bearerAuth: []
+        - bearerTrainingAuth: []
       parameters:
         - name: clipId
           in: path
