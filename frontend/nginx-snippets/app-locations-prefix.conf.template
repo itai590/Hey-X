@@ -6,6 +6,18 @@
         try_files $uri =404;
     }
 
+    location = %%PUBLIC_URL%%/api/openapi.yaml {
+        return 404;
+    }
+
+    location = %%PUBLIC_URL%%/api/docs {
+        return 404;
+    }
+
+    location ^~ %%PUBLIC_URL%%/api/docs/ {
+        return 404;
+    }
+
     location ^~ %%PUBLIC_URL%%/api/ {
         # Binary bodies (WAV, etc.): avoid buffering/transformation that breaks <audio> blobs behind TLS.
         gzip off;

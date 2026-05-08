@@ -1,3 +1,15 @@
+    location = /api/openapi.yaml {
+        return 404;
+    }
+
+    location = /api/docs {
+        return 404;
+    }
+
+    location ^~ /api/docs/ {
+        return 404;
+    }
+
     location ^~ /api/ {
         gzip off;
         proxy_buffering off;
