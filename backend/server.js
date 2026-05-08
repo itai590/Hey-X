@@ -556,15 +556,22 @@ const HEY_REQUIRE_HTTPS_TRUST_LOOPBACK = parseBoolEnv(
   process.env.HEY_REQUIRE_HTTPS_TRUST_LOOPBACK,
   true,
 );
+const HEY_REQUIRE_HTTPS_TRUST_LAN = parseBoolEnv(process.env.HEY_REQUIRE_HTTPS_TRUST_LAN, false);
 configureTrustProxy(app, {
   heyRequireHttps: HEY_REQUIRE_HTTPS,
   trustProxyRaw: process.env.HEY_TRUST_PROXY,
 });
-app.use(createHttpsMiddleware(HEY_REQUIRE_HTTPS, { trustLoopback: HEY_REQUIRE_HTTPS_TRUST_LOOPBACK }));
+app.use(
+  createHttpsMiddleware(HEY_REQUIRE_HTTPS, {
+    trustLoopback: HEY_REQUIRE_HTTPS_TRUST_LOOPBACK,
+    trustLan: HEY_REQUIRE_HTTPS_TRUST_LAN,
+  }),
+);
 if (HEY_REQUIRE_HTTPS) {
-  const loopNote = HEY_REQUIRE_HTTPS_TRUST_LOOPBACK
-    ? ' — localhost HTTP exempt for health checks'
-    : '';
+  const bits = [];
+  if (HEY_REQUIRE_HTTPS_TRUST_LOOPBACK) bits.push('localhost HTTP exempt for health checks');
+  if (HEY_REQUIRE_HTTPS_TRUST_LAN) bits.push('private-LAN IPv4 (RFC1918 / APIPA) HTTP exempt on TCP peer');
+  const loopNote = bits.length ? ` — ${bits.join('; ')}` : '';
   console.log('[security] HTTPS-only mode for API requests' + loopNote);
 }
 

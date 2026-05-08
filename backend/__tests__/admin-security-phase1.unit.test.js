@@ -1,6 +1,8 @@
 const {
   adminCredentialMatches,
+  createHttpsMiddleware,
   createVerifyAdminGuard,
+  isPrivateLanIpv4Address,
 } = require('../admin-security-phase1');
 
 describe('adminCredentialMatches', () => {
@@ -14,6 +16,83 @@ describe('adminCredentialMatches', () => {
   });
   test('empty previous is ignored', () => {
     expect(adminCredentialMatches('oldsecret', 'newsecret', '   ')).toBe(false);
+  });
+});
+
+describe('isPrivateLanIpv4Address', () => {
+  test('accepts RFC1918 and APIPA forms', () => {
+    expect(isPrivateLanIpv4Address('192.168.148.114')).toBe(true);
+    expect(isPrivateLanIpv4Address('::ffff:192.168.0.1')).toBe(true);
+    expect(isPrivateLanIpv4Address('10.0.0.2')).toBe(true);
+    expect(isPrivateLanIpv4Address('172.20.1.1')).toBe(true);
+    expect(isPrivateLanIpv4Address('169.254.3.4')).toBe(true);
+  });
+  test('rejects public and non-IPv4', () => {
+    expect(isPrivateLanIpv4Address('203.0.113.1')).toBe(false);
+    expect(isPrivateLanIpv4Address('172.32.1.1')).toBe(false);
+    expect(isPrivateLanIpv4Address('fe80::1')).toBe(false);
+    expect(isPrivateLanIpv4Address('')).toBe(false);
+  });
+});
+
+describe('createHttpsMiddleware trustLan', () => {
+  test('allows HTTP when TCP peer is private LAN and trustLan is on', () => {
+    const mw = createHttpsMiddleware(true, { trustLoopback: false, trustLan: true });
+    const req = {
+      secure: false,
+      headers: {},
+      socket: { remoteAddress: '192.168.1.5' },
+      ip: '203.0.113.99',
+    };
+    let nextCalled = false;
+    mw(req, {}, () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(true);
+  });
+  test('HTTPS still required for public TCP peer when trustLan is on', () => {
+    const mw = createHttpsMiddleware(true, { trustLoopback: false, trustLan: true });
+    const req = {
+      secure: false,
+      headers: {},
+      socket: { remoteAddress: '198.51.100.22' },
+    };
+    const res = {
+      statusCode: 0,
+      status(c) {
+        this.statusCode = c;
+        return this;
+      },
+      json(_b) {},
+    };
+    let nextCalled = false;
+    mw(req, res, () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(false);
+    expect(res.statusCode).toBe(403);
+  });
+  test('does not treat spoofed req.ip as LAN (uses socket only)', () => {
+    const mw = createHttpsMiddleware(true, { trustLoopback: false, trustLan: true });
+    const req = {
+      secure: false,
+      headers: { 'x-forwarded-for': '192.168.99.99' },
+      ip: '192.168.99.99',
+      socket: { remoteAddress: '198.51.100.22' },
+    };
+    const res = {
+      statusCode: 0,
+      status(c) {
+        this.statusCode = c;
+        return this;
+      },
+      json(_b) {},
+    };
+    let nextCalled = false;
+    mw(req, res, () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(false);
   });
 });
 

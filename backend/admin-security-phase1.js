@@ -49,13 +49,43 @@ function isProbablyLoopback(req) {
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
 }
 
+/**
+ * TCP peer address only (not `req.ip`), so `X-Forwarded-For` cannot bypass HTTPS when trust proxy is on.
+ */
+function directTcpRemoteAddress(req) {
+  return String(req.socket?.remoteAddress || req.connection?.remoteAddress || '');
+}
+
+function normalizeToIpv4String(addr) {
+  const s = String(addr || '');
+  const m = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(s.trim());
+  return m ? m[1] : s;
+}
+
+/** RFC 1918 + IPv4 link-local (APIPA). Used for optional HTTP-on-LAN when `HEY_REQUIRE_HTTPS` is on. */
+function isPrivateLanIpv4Address(addr) {
+  const v4 = normalizeToIpv4String(addr);
+  const parts = v4.split('.');
+  if (parts.length !== 4) return false;
+  const nums = parts.map((p) => parseInt(p, 10));
+  if (nums.some((n) => !Number.isFinite(n) || n < 0 || n > 255)) return false;
+  const [ai, bi] = nums;
+  if (ai === 10) return true;
+  if (ai === 172 && bi >= 16 && bi <= 31) return true;
+  if (ai === 192 && bi === 168) return true;
+  if (ai === 169 && bi === 254) return true;
+  return false;
+}
+
 /** When `trustLoopback` is true (default), direct HTTP hits from localhost still work for health checks. */
-function createHttpsMiddleware(heyRequireHttps, { trustLoopback = true } = {}) {
+/** When `trustLan` is true, HTTP from private IPv4 peers (RFC 1918 + 169.254/16 on the TCP socket) is allowed. */
+function createHttpsMiddleware(heyRequireHttps, { trustLoopback = true, trustLan = false } = {}) {
   if (!heyRequireHttps) return function httpsSkip(_req, _res, next) {
     next();
   };
   return function requireHttps(req, res, next) {
     if (trustLoopback && isProbablyLoopback(req)) return next();
+    if (trustLan && isPrivateLanIpv4Address(directTcpRemoteAddress(req))) return next();
     if (isHttpsRequest(req)) return next();
     return res.status(403).json({ error: 'HTTPS required', code: 'HTTPS_REQUIRED' });
   };
@@ -164,6 +194,8 @@ module.exports = {
   trustProxyExpressValue,
   configureTrustProxy,
   createHttpsMiddleware,
+  isPrivateLanIpv4Address,
+  directTcpRemoteAddress,
   createVerifyAdminGuard,
   auditMutatingRoute,
   timingSafeEqualStrings,

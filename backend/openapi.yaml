@@ -10,7 +10,7 @@ info:
     - **Training** (`/api/training/*`, `POST /api/custom-head/train`): `HEY_TRAINING_ADMIN_TOKEN` when set, else same as main.
     - **Docs** (this YAML, `/api/docs`, `PUT /api/custom-head/clip`): `HEY_DOCS_ADMIN_TOKEN` when set, else same as main.
 
-    With `HEY_REQUIRE_HTTPS=true`, non-HTTPS requests are rejected (`403`) unless exempted (localhost when `HEY_REQUIRE_HTTPS_TRUST_LOOPBACK=true`).
+    With `HEY_REQUIRE_HTTPS=true`, non-HTTPS requests are rejected (`403`) unless exempted: localhost when `HEY_REQUIRE_HTTPS_TRUST_LOOPBACK=true`, or private IPv4 (RFC 1918 / 169.254.0.0/16) peers on the TCP connection when `HEY_REQUIRE_HTTPS_TRUST_LAN=true` (uses socket address, not forwarded headers).
     Failed `verify-admin` attempts are rate-limited and may return `429` with `Retry-After`.
   version: 1.0.0
 
