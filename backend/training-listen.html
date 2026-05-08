@@ -514,14 +514,14 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
           lockBtn.setAttribute('aria-label', 'Sign out training session');
           lockBtn.classList.add('unlocked');
           cap.classList.add('unlocked');
-          cap.innerHTML = '<span>Unlocked</span> — Training session saved in this tab';
+          cap.innerHTML = '<span>Unlocked</span>';
           iconLocked(false);
         } else {
-          lockBtn.title = 'Sign in — open training login';
+          lockBtn.title = 'Sign in';
           lockBtn.setAttribute('aria-label', 'Training sign-in');
           lockBtn.classList.remove('unlocked');
           cap.classList.remove('unlocked');
-          cap.innerHTML = '<span>Locked</span> — tap the lock to sign in';
+          cap.innerHTML = '<span>Locked</span>';
           iconLocked(true);
         }
       }
