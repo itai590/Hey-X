@@ -16,6 +16,7 @@ import { apiUrl } from '../apiBase';
  * @param {() => void} [props.onLoggedIn] Called after token is stored (e.g. retry pending save)
  */
 export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -23,6 +24,7 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
 
   useEffect(() => {
     if (open) {
+      setUsername('admin');
       setPassword('');
       setError('');
       setShowPassword(false);
@@ -93,36 +95,40 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <LockIcon sx={{ color: '#66bb6a' }} />
-        Admin password
+        Admin login
       </DialogTitle>
       <DialogContent>
         <Typography variant="body2" sx={{ color: 'grey.400', mb: 2 }}>
-          The server requires a password to change settings or delete barks. Use the same value as{' '}
+          Use your admin username and password to change settings or delete barks. The password value must match{' '}
           <Typography component="span" variant="body2" sx={{ fontFamily: 'monospace', color: '#a5d6a7' }}>
             HEY_ADMIN_TOKEN
           </Typography>{' '}
           on the Pi. Stored in this browser tab until you close it.
         </Typography>
         <Box component="form" autoComplete="on" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-          <Box
-            component="input"
+          <TextField
+            autoFocus
+            fullWidth
+            variant="outlined"
             type="text"
+            label="Username"
             name="username"
             autoComplete="username"
-            value="hey-admin"
-            readOnly
-            tabIndex={-1}
-            aria-hidden="true"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
             sx={{
-              position: 'absolute',
-              width: 1,
-              height: 1,
-              opacity: 0,
-              pointerEvents: 'none',
+              mb: 1.5,
+              '& .MuiOutlinedInput-root': { bgcolor: 'rgba(255,255,255,0.06)', color: 'white' },
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.2)' },
+              '& .MuiInputLabel-root': { color: 'grey.500' },
+            }}
+            inputProps={{
+              autoCapitalize: 'none',
+              autoCorrect: 'off',
+              spellCheck: false,
             }}
           />
           <TextField
-            autoFocus
             fullWidth
             variant="outlined"
             type={showPassword ? 'text' : 'password'}
