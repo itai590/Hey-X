@@ -1403,15 +1403,38 @@ app.get('/api/openapi.yaml', requireDocsAdmin, (_req, res) => {
 const swaggerUiAuthorizeInputScript = `(function(){var r=document.getElementById("swagger-ui");if(!r)return;function p(){r.querySelectorAll(".dialog-ux input,.modal-ux input,[role=dialog] input").forEach(function(i){if(i.dataset.heySwaggerPm)return;i.dataset.heySwaggerPm="1";i.type="password";i.setAttribute("autocomplete","current-password");i.setAttribute("name","hey-admin-bearer-token");i.setAttribute("autocorrect","off");i.setAttribute("autocapitalize","off");i.setAttribute("spellcheck","false");});}p();new MutationObserver(p).observe(r,{childList:!0,subtree:!0});})();`;
 
 function swaggerUiBearerTokenRequestInterceptor(req) {
-  function plain(value) {
+  function plain(value, seen) {
     if (value == null) return '';
-    if (typeof value === 'string') return value.replace(/^Bearer\s+/i, '').trim();
-    if (typeof value.toJS === 'function') return plain(value.toJS());
-    if (typeof value.get === 'function') {
-      return plain(value.get('value') || value.get('token') || value.get('password') || value.get('access_token'));
+    const visited = seen || [];
+    if (visited.indexOf(value) !== -1) return '';
+    if (typeof value === 'string') {
+      const token = value.replace(/^Bearer\s+/i, '').trim();
+      return token && !/^(http|bearer|apiKey)$/i.test(token) && token !== '[object Object]' ? token : '';
     }
-    if (typeof value === 'object') {
-      return plain(value.value || value.token || value.password || value.access_token);
+    if (typeof value !== 'object' && typeof value !== 'function') return '';
+    visited.push(value);
+    if (typeof value.toJS === 'function') {
+      const token = plain(value.toJS(), visited);
+      if (token) return token;
+    }
+    if (typeof value.get === 'function') {
+      const token = plain(value.get('value'), visited)
+        || plain(value.get('token'), visited)
+        || plain(value.get('password'), visited)
+        || plain(value.get('access_token'), visited);
+      if (token) return token;
+    }
+    const preferred = ['value', 'token', 'password', 'access_token', 'apiKeyValue'];
+    for (let i = 0; i < preferred.length; i += 1) {
+      const token = plain(value[preferred[i]], visited);
+      if (token) return token;
+    }
+    const keys = Object.keys(value);
+    for (let i = 0; i < keys.length; i += 1) {
+      const key = keys[i];
+      if (/schema|definition|description|name|type|scheme|in/i.test(key)) continue;
+      const token = plain(value[key], visited);
+      if (token) return token;
     }
     return '';
   }
@@ -1435,7 +1458,7 @@ function swaggerUiBearerTokenRequestInterceptor(req) {
   const url = String(req.url || '');
   const isTrainingUrl = /\/api\/training\//.test(url) || /\/api\/custom-head\/train/.test(url);
   if (needsRepair || (isTrainingUrl && !header)) {
-    const token = authEntry('bearerMainAuth');
+    const token = plain(header) || authEntry('bearerMainAuth');
     if (token) {
       headers[authKey] = `Bearer ${token}`;
       req.headers = headers;
