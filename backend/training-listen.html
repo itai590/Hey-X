@@ -78,6 +78,7 @@
       transform: rotate(-90deg);
     }
     details.catalog-section .section-body { padding-left: 0.15rem; }
+    button.load-more-btn { margin: 0.5rem 0; display: block; }
     .training-toolbar {
       margin-bottom: 1rem;
       display: flex;
@@ -962,104 +963,157 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       applyToolbarButtonState();
     }
 
-    function loadAudioCatalog() {
-      var status = document.getElementById('status');
-      var out = document.getElementById('out');
-      out.textContent = '';
-      status.textContent = 'Loading…';
-      setCatalogButtonsBusy(true);
+    var INBOX_PAGE_SIZE = 50;
+    var inboxSection = null;   // persists across "load more" calls
+    var inboxLoadedCount = 0;
+    var inboxTotalCount = 0;
+    var inboxLoadMoreBtn = null;
 
-      fetch(heyApi('/api/training/audio-catalog'), { headers: authHeaders(), cache: 'no-store' })
+    function appendInboxRows(rows, startIndex) {
+      rows.forEach(function (row, i) {
+        var parts = [
+          'bytes=' + (row.bytes || 0),
+          catalogRmsPart(row),
+          row.capturedAt ? formatTimeIL(row.capturedAt) : '',
+          row.clipId || '',
+          row.topLabel != null ? 'topLabel=' + row.topLabel : '',
+          row.isBark != null ? 'is_bark=' + row.isBark : '',
+        ].filter(Boolean);
+        appendClip(
+          inboxSection.clipContainer,
+          row.clipId || '(no id)',
+          parts.join(' · '),
+          '/api/training/inbox/' + encodeURIComponent(row.clipId) + '/audio',
+          row.clipId,
+          startIndex + i + 1,
+          row.classifyLogLine || '',
+        );
+      });
+    }
+
+    function updateInboxLoadMoreBtn() {
+      if (!inboxLoadMoreBtn) return;
+      var remaining = inboxTotalCount - inboxLoadedCount;
+      if (remaining <= 0) {
+        inboxLoadMoreBtn.style.display = 'none';
+      } else {
+        inboxLoadMoreBtn.style.display = '';
+        inboxLoadMoreBtn.textContent = 'Load more (' + remaining + ' remaining)';
+      }
+    }
+
+    function loadInboxPage(offset, isFirstLoad) {
+      var status = document.getElementById('status');
+      if (isFirstLoad) setCatalogButtonsBusy(true);
+      else if (inboxLoadMoreBtn) { inboxLoadMoreBtn.disabled = true; inboxLoadMoreBtn.textContent = 'Loading…'; }
+
+      var url = '/api/training/audio-catalog?limit=' + INBOX_PAGE_SIZE + '&offset=' + offset;
+      fetch(heyApi(url), { headers: authHeaders(), cache: 'no-store' })
         .then(function (r) {
-          if (r.status === 401) {
-            throw new Error('Unauthorized — open the lock icon and sign in with HEY_ADMIN_TOKEN.');
-          }
+          if (r.status === 401) throw new Error('Unauthorized — open the lock icon and sign in with HEY_ADMIN_TOKEN.');
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
         })
         .then(function (data) {
-          status.textContent = '';
-          if (data.adminRequired && !getAdminSessionToken()) {
-            status.textContent = 'Tip: tap the lock to sign in, then tap Load all clips.';
+          if (isFirstLoad) {
+            status.textContent = '';
+            if (data.adminRequired && !getAdminSessionToken()) {
+              status.textContent = 'Tip: tap the lock to sign in, then tap Load all clips.';
+            }
           }
 
           var inboxRows = data.inbox || [];
-          if (inboxRows.length) {
-            var s = section('Training inbox (' + inboxRows.length + ')');
-            inboxRows.forEach(function (row, i) {
-              var parts = [
-                'bytes=' + (row.bytes || 0),
-                catalogRmsPart(row),
-                row.capturedAt ? formatTimeIL(row.capturedAt) : '',
-                row.clipId || '',
-                row.topLabel != null ? 'topLabel=' + row.topLabel : '',
-                row.isBark != null ? 'is_bark=' + row.isBark : '',
-              ].filter(Boolean);
-              appendClip(
-                s.clipContainer,
-                row.clipId || '(no id)',
-                parts.join(' · '),
-                '/api/training/inbox/' + encodeURIComponent(row.clipId) + '/audio',
-                row.clipId,
-                i + 1,
-                row.classifyLogLine || '',
-              );
-            });
-            out.appendChild(s);
-          }
+          inboxTotalCount = data.inboxTotal != null ? data.inboxTotal : inboxRows.length;
 
-          var mic = data.micTemp || [];
-          if (mic.length) {
-            var s2 = section('Mic temp (' + mic.length + ') — data/mic_temp');
-            mic.forEach(function (row, i) {
-              var parts = [
-                'bytes=' + (row.bytes || 0),
-                catalogRmsPart(row),
-                row.mtime ? formatTimeIL(row.mtime) : '',
-              ].filter(Boolean);
-              appendClip(s2.clipContainer, row.name, parts.join(' · '), '/api/training/mic-temp/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
-            });
-            out.appendChild(s2);
-          }
+          if (isFirstLoad) {
+            inboxLoadedCount = 0;
+            inboxSection = null;
+            inboxLoadMoreBtn = null;
+            var out = document.getElementById('out');
 
-          var cb = (data.custom && data.custom.bark) || [];
-          if (cb.length) {
-            var s3 = section('Custom clips — bark (' + cb.length + ')');
-            cb.forEach(function (row, i) {
-              var parts = [
-                'bytes=' + (row.bytes || 0),
-                catalogRmsPart(row),
-                row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
-              ].filter(Boolean);
-              appendClip(s3.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
-            });
-            out.appendChild(s3);
-          }
+            if (inboxTotalCount > 0) {
+              inboxSection = section('Training inbox (' + inboxTotalCount + ')');
+              appendInboxRows(inboxRows, 0);
+              inboxLoadedCount = inboxRows.length;
 
-          var cn = (data.custom && data.custom.not_bark) || [];
-          if (cn.length) {
-            var s4 = section('Custom clips — not_bark (' + cn.length + ')');
-            cn.forEach(function (row, i) {
-              var parts = [
-                'bytes=' + (row.bytes || 0),
-                catalogRmsPart(row),
-                row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
-              ].filter(Boolean);
-              appendClip(s4.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/not_bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
-            });
-            out.appendChild(s4);
-          }
+              inboxLoadMoreBtn = document.createElement('button');
+              inboxLoadMoreBtn.className = 'load-more-btn';
+              inboxSection.appendChild(inboxLoadMoreBtn);
+              updateInboxLoadMoreBtn();
+              inboxLoadMoreBtn.addEventListener('click', function () {
+                loadInboxPage(inboxLoadedCount, false);
+              });
+              out.appendChild(inboxSection);
+            }
 
-          if (!inboxRows.length && !mic.length && !cb.length && !cn.length) {
-            status.textContent = 'No WAV files found under training_inbox, mic_temp, or custom_clips.';
+            var mic = data.micTemp || [];
+            if (mic.length) {
+              var s2 = section('Mic temp (' + mic.length + ') — data/mic_temp');
+              mic.forEach(function (row, i) {
+                var parts = [
+                  'bytes=' + (row.bytes || 0),
+                  catalogRmsPart(row),
+                  row.mtime ? formatTimeIL(row.mtime) : '',
+                ].filter(Boolean);
+                appendClip(s2.clipContainer, row.name, parts.join(' · '), '/api/training/mic-temp/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
+              });
+              out.appendChild(s2);
+            }
+
+            var cb = (data.custom && data.custom.bark) || [];
+            if (cb.length) {
+              var s3 = section('Custom clips — bark (' + cb.length + ')');
+              cb.forEach(function (row, i) {
+                var parts = [
+                  'bytes=' + (row.bytes || 0),
+                  catalogRmsPart(row),
+                  row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
+                ].filter(Boolean);
+                appendClip(s3.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
+              });
+              out.appendChild(s3);
+            }
+
+            var cn = (data.custom && data.custom.not_bark) || [];
+            if (cn.length) {
+              var s4 = section('Custom clips — not_bark (' + cn.length + ')');
+              cn.forEach(function (row, i) {
+                var parts = [
+                  'bytes=' + (row.bytes || 0),
+                  catalogRmsPart(row),
+                  row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
+                ].filter(Boolean);
+                appendClip(s4.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/not_bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
+              });
+              out.appendChild(s4);
+            }
+
+            if (!inboxTotalCount && !mic.length && !cb.length && !cn.length) {
+              status.textContent = 'No WAV files found under training_inbox, mic_temp, or custom_clips.';
+            }
+          } else {
+            // "Load more" — append to existing inbox section
+            appendInboxRows(inboxRows, inboxLoadedCount);
+            inboxLoadedCount += inboxRows.length;
+            if (inboxLoadMoreBtn) inboxLoadMoreBtn.disabled = false;
+            updateInboxLoadMoreBtn();
           }
         })
         .catch(function (e) {
+          var status = document.getElementById('status');
           status.innerHTML = '<span class="err">' + String(e.message || e) + '</span>';
+          if (inboxLoadMoreBtn) { inboxLoadMoreBtn.disabled = false; updateInboxLoadMoreBtn(); }
         })
         .finally(function () {
-          setCatalogButtonsBusy(false);
+          if (isFirstLoad) setCatalogButtonsBusy(false);
         });
+    }
+
+    function loadAudioCatalog() {
+      var out = document.getElementById('out');
+      out.textContent = '';
+      document.getElementById('status').textContent = 'Loading…';
+      loadInboxPage(0, true);
     }
 
     document.getElementById('load').onclick = loadAudioCatalog;

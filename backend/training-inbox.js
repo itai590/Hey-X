@@ -81,24 +81,42 @@ function clipPaths(inboxDir, clipId) {
   };
 }
 
-function listInbox(backendRoot) {
+/**
+ * List inbox clips with optional pagination. Uses file mtime for sorting to avoid reading every
+ * JSON file upfront — only the requested page slice reads metadata from disk.
+ * @param {string} backendRoot
+ * @param {{ limit?: number|null, offset?: number }} [opts]
+ * @returns {{ total: number, rows: object[] }}
+ */
+function listInbox(backendRoot, { limit = null, offset = 0 } = {}) {
   const inboxDir = getInboxDir(backendRoot);
-  if (!fs.existsSync(inboxDir)) return [];
+  if (!fs.existsSync(inboxDir)) return { total: 0, rows: [] };
+
+  // Phase 1: filenames + mtime only (no JSON reads)
   const names = fs.readdirSync(inboxDir).filter((f) => f.endsWith('.json'));
+  const withMtime = names.map((name) => {
+    let mtime = 0;
+    try { mtime = fs.statSync(path.join(inboxDir, name)).mtimeMs; } catch (_) { /* ignore */ }
+    return { name, mtime };
+  });
+  withMtime.sort((a, b) => b.mtime - a.mtime);
+
+  const total = withMtime.length;
+  const page = limit != null ? withMtime.slice(offset, offset + limit) : withMtime.slice(offset);
+
+  // Phase 2: read JSON + WAV stat only for the page slice
   const rows = [];
-  for (const name of names) {
+  for (const { name } of page) {
     const clipId = name.slice(0, -5);
     const meta = readMeta(inboxDir, clipId);
     if (!meta) continue;
     const { wav } = clipPaths(inboxDir, clipId);
     let bytes = 0;
-    try {
-      bytes = fs.statSync(wav).size;
-    } catch (_) { /* ignore */ }
+    try { bytes = fs.statSync(wav).size; } catch (_) { /* ignore */ }
     rows.push({ ...meta, bytes });
   }
-  rows.sort((a, b) => String(b.capturedAt || '').localeCompare(String(a.capturedAt || '')));
-  return rows;
+
+  return { total, rows };
 }
 
 function deleteFromInbox(backendRoot, clipId) {
