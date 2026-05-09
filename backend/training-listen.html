@@ -397,6 +397,45 @@
     }
     .ok { color: #a5d6a7; font-size: 0.9rem; }
     #status, #ids-status { color: var(--text-muted); font-size: 0.92rem; }
+
+    /* Tabs */
+    .catalog-tabs {
+      display: flex;
+      gap: 0.25rem;
+      margin: 1.1rem 0 0;
+      border-bottom: 1px solid var(--border-strong);
+    }
+    .catalog-tab {
+      padding: 0.45rem 0.9rem;
+      border: 1px solid transparent;
+      border-bottom: none;
+      border-radius: 10px 10px 0 0;
+      background: none;
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: color 0.12s, background 0.12s;
+      position: relative;
+      bottom: -1px;
+    }
+    .catalog-tab:hover:not(.catalog-tab-active) {
+      color: var(--text);
+      background: var(--bg-elev);
+    }
+    .catalog-tab.catalog-tab-active {
+      color: var(--text);
+      background: var(--bg);
+      border-color: var(--border-strong);
+    }
+    .catalog-tab .tab-count {
+      font-size: 0.76rem;
+      font-weight: 500;
+      opacity: 0.7;
+      margin-left: 0.3rem;
+    }
+    .catalog-panel { display: none; padding-top: 0.75rem; }
+    .catalog-panel.catalog-panel-active { display: block; }
   </style>
 </head>
 <body>
@@ -473,7 +512,14 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
   </section>
 
   <div id="status"></div>
-  <div id="out"></div>
+  <div class="catalog-tabs" id="catalog-tabs" style="display:none">
+    <button type="button" class="catalog-tab catalog-tab-active" data-panel="panel-inbox" id="tab-inbox">Inbox<span class="tab-count" id="tab-count-inbox"></span></button>
+    <button type="button" class="catalog-tab" data-panel="panel-barks" id="tab-barks">Barks<span class="tab-count" id="tab-count-barks"></span></button>
+    <button type="button" class="catalog-tab" data-panel="panel-not-barks" id="tab-not-barks">Not barks<span class="tab-count" id="tab-count-not-barks"></span></button>
+  </div>
+  <div id="panel-inbox" class="catalog-panel catalog-panel-active"></div>
+  <div id="panel-barks" class="catalog-panel"></div>
+  <div id="panel-not-barks" class="catalog-panel"></div>
 
   <script>
     /**
@@ -984,6 +1030,23 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       applyToolbarButtonState();
     }
 
+    (function bindCatalogTabs() {
+      var tabsEl = document.getElementById('catalog-tabs');
+      if (!tabsEl) return;
+      tabsEl.addEventListener('click', function (ev) {
+        var btn = ev.target.closest('.catalog-tab');
+        if (!btn || btn.classList.contains('catalog-tab-active')) return;
+        tabsEl.querySelectorAll('.catalog-tab').forEach(function (t) { t.classList.remove('catalog-tab-active'); });
+        btn.classList.add('catalog-tab-active');
+        var panelId = btn.getAttribute('data-panel');
+        document.querySelectorAll('.catalog-panel').forEach(function (p) { p.classList.remove('catalog-panel-active'); });
+        var panel = document.getElementById(panelId);
+        if (panel) panel.classList.add('catalog-panel-active');
+      });
+    })();
+
+    var catalogLoadingInFlight = false;
+
     var INBOX_PAGE_SIZE = 80;
     var inboxSection = null;   // persists across "load more" calls
     var inboxLoadedCount = 0;
@@ -1125,8 +1188,10 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     function loadInboxPage(offset, isFirstLoad, replaceInboxRows) {
       var pageNum = Math.floor((offset || 0) / INBOX_PAGE_SIZE) + 1;
       var status = document.getElementById('status');
-      if (isFirstLoad) setCatalogButtonsBusy(true);
-      else if (inboxPagers().length) {
+      if (isFirstLoad) {
+        catalogLoadingInFlight = true;
+        setCatalogButtonsBusy(true);
+      } else if (inboxPagers().length) {
         setLoadMoreLoading(true);
       }
 
@@ -1155,7 +1220,9 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
             inboxSection = null;
             inboxPagerTop = null;
             inboxPagerBottom = null;
-            var out = document.getElementById('out');
+            var panelInbox = document.getElementById('panel-inbox');
+            var panelBarks = document.getElementById('panel-barks');
+            var panelNotBarks = document.getElementById('panel-not-barks');
 
             if (inboxTotalCount > 0) {
               inboxSection = section('Training inbox (' + inboxTotalCount + ')');
@@ -1168,32 +1235,9 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
 
               inboxPagerTop = createInboxPager();
               inboxPagerBottom = createInboxPager();
-              out.appendChild(inboxPagerTop.root);
-              inboxPagerTop.nextBtn.onclick = function () {
-                loadInboxPage(inboxCurrentPage * INBOX_PAGE_SIZE, false, true);
-              };
-              inboxPagerTop.prevBtn.onclick = function () {
-                goToInboxPage(inboxCurrentPage - 1);
-              };
-              inboxPagerTop.pageSelect.onchange = function () {
-                var n = parseInt(inboxPagerTop.pageSelect.value, 10);
-                if (!Number.isNaN(n)) goToInboxPage(n);
-              };
-
-              out.appendChild(inboxSection);
-
-              inboxPagerBottom.nextBtn.onclick = function () {
-                loadInboxPage(inboxCurrentPage * INBOX_PAGE_SIZE, false, true);
-              };
-              inboxPagerBottom.prevBtn.onclick = function () {
-                goToInboxPage(inboxCurrentPage - 1);
-              };
-              inboxPagerBottom.pageSelect.onchange = function () {
-                var n = parseInt(inboxPagerBottom.pageSelect.value, 10);
-                if (!Number.isNaN(n)) goToInboxPage(n);
-              };
-
-              out.appendChild(inboxPagerBottom.root);
+              panelInbox.appendChild(inboxPagerTop.root);
+              panelInbox.appendChild(inboxSection);
+              panelInbox.appendChild(inboxPagerBottom.root);
             }
 
             var mic = data.micTemp || [];
@@ -1207,36 +1251,37 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
                 ].filter(Boolean);
                 appendClip(s2.clipContainer, row.name, parts.join(' · '), '/api/training/mic-temp/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
               });
-              out.appendChild(s2);
+              panelInbox.appendChild(s2);
             }
 
             var cb = (data.custom && data.custom.bark) || [];
-            if (cb.length) {
-              var s3 = section('Custom clips — bark (' + cb.length + ')');
-              cb.forEach(function (row, i) {
-                var parts = [
-                  'bytes=' + (row.bytes || 0),
-                  catalogRmsPart(row),
-                  row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
-                ].filter(Boolean);
-                appendClip(s3.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
-              });
-              out.appendChild(s3);
-            }
+            cb.forEach(function (row, i) {
+              var parts = [
+                'bytes=' + (row.bytes || 0),
+                catalogRmsPart(row),
+                row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
+              ].filter(Boolean);
+              appendClip(panelBarks, row.name, parts.join(' · '), '/api/training/custom-clips/bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
+            });
 
             var cn = (data.custom && data.custom.not_bark) || [];
-            if (cn.length) {
-              var s4 = section('Custom clips — not_bark (' + cn.length + ')');
-              cn.forEach(function (row, i) {
-                var parts = [
-                  'bytes=' + (row.bytes || 0),
-                  catalogRmsPart(row),
-                  row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
-                ].filter(Boolean);
-                appendClip(s4.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/not_bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
-              });
-              out.appendChild(s4);
-            }
+            cn.forEach(function (row, i) {
+              var parts = [
+                'bytes=' + (row.bytes || 0),
+                catalogRmsPart(row),
+                row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
+              ].filter(Boolean);
+              appendClip(panelNotBarks, row.name, parts.join(' · '), '/api/training/custom-clips/not_bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
+            });
+
+            var tabsEl = document.getElementById('catalog-tabs');
+            var countInbox = document.getElementById('tab-count-inbox');
+            var countBarks = document.getElementById('tab-count-barks');
+            var countNotBarks = document.getElementById('tab-count-not-barks');
+            if (countInbox) countInbox.textContent = inboxTotalCount ? ' ' + inboxTotalCount : '';
+            if (countBarks) countBarks.textContent = cb.length ? ' ' + cb.length : '';
+            if (countNotBarks) countNotBarks.textContent = cn.length ? ' ' + cn.length : '';
+            if (tabsEl && (inboxTotalCount || cb.length || cn.length || mic.length)) tabsEl.style.display = '';
 
             if (inboxPagerTop || inboxPagerBottom) {
               updateInboxLoadMoreBtn();
@@ -1260,7 +1305,6 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
               appendInboxRows(inboxRows, (inboxCurrentPage - 1) * INBOX_PAGE_SIZE);
               inboxLoadedCount = inboxRows.length;
             } else {
-              // "Load more" — append to existing inbox section
               appendInboxRows(inboxRows, inboxLoadedCount);
               inboxLoadedCount += inboxRows.length;
             }
@@ -1277,13 +1321,29 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
           }
         })
         .finally(function () {
-          if (isFirstLoad) setCatalogButtonsBusy(false);
+          if (isFirstLoad) {
+            catalogLoadingInFlight = false;
+            setCatalogButtonsBusy(false);
+          }
         });
     }
 
     function loadAudioCatalog() {
-      var out = document.getElementById('out');
-      out.textContent = '';
+      if (catalogLoadingInFlight) return;
+      ['panel-inbox', 'panel-barks', 'panel-not-barks'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = '';
+      });
+      var tabsEl = document.getElementById('catalog-tabs');
+      if (tabsEl) {
+        tabsEl.style.display = 'none';
+        tabsEl.querySelectorAll('.catalog-tab').forEach(function (t) { t.classList.remove('catalog-tab-active'); });
+        var firstTab = tabsEl.querySelector('.catalog-tab');
+        if (firstTab) firstTab.classList.add('catalog-tab-active');
+      }
+      document.querySelectorAll('.catalog-panel').forEach(function (p) { p.classList.remove('catalog-panel-active'); });
+      var firstPanel = document.getElementById('panel-inbox');
+      if (firstPanel) firstPanel.classList.add('catalog-panel-active');
       document.getElementById('status').textContent = 'Loading…';
       loadInboxPage(0, true);
     }
