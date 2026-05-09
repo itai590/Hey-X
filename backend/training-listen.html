@@ -51,33 +51,39 @@
       color: #f0e6dc;
     }
     section { margin: 1.25rem 0; padding-top: 1rem; border-top: 1px solid var(--border); }
-    details.catalog-section {
+    .catalog-section {
       margin: 1.25rem 0;
       padding-top: 1rem;
       border-top: 1px solid var(--border);
     }
-    details.catalog-section > summary.section-summary {
+    .section-summary {
       font-size: 1.05rem;
       font-weight: 600;
-      cursor: pointer;
-      list-style: none;
       margin: 0 0 0.75rem;
-      user-select: none;
       color: var(--text);
     }
-    details.catalog-section > summary.section-summary::-webkit-details-marker { display: none; }
-    details.catalog-section > summary.section-summary::before {
-      content: '▾ ';
-      display: inline-block;
-      width: 1.1em;
-      color: var(--accent);
-      transition: transform 0.15s ease;
-      transform: rotate(0deg);
+    .catalog-section .section-body { padding-left: 0.15rem; }
+    #scroll-to-top {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      z-index: 999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 2.6rem;
+      height: 2.6rem;
+      font-size: 1.2rem;
+      line-height: 1;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      transition: opacity 0.2s;
     }
-    details.catalog-section:not([open]) > summary.section-summary::before {
-      transform: rotate(-90deg);
-    }
-    details.catalog-section .section-body { padding-left: 0.15rem; }
+    #scroll-to-top:hover { opacity: 0.85; }
     button.load-more-btn { margin: 0.5rem 0; display: block; }
     .pagination-controls {
       margin: 0.4rem 0 0.6rem;
@@ -520,6 +526,8 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
   <div id="panel-inbox" class="catalog-panel catalog-panel-active"></div>
   <div id="panel-barks" class="catalog-panel"></div>
   <div id="panel-not-barks" class="catalog-panel"></div>
+
+  <button type="button" id="scroll-to-top" title="Scroll to top" aria-label="Scroll to top">↑</button>
 
   <script>
     /**
@@ -970,20 +978,20 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       return wrap;
     }
 
-    /** Collapsible block (native details/summary); clips go in clipContainer. */
+    /** Non-collapsible section block; clips go in clipContainer. */
     function section(title) {
-      var details = document.createElement('details');
-      details.className = 'catalog-section';
-      details.open = false;
-      var sum = document.createElement('summary');
-      sum.className = 'section-summary';
-      sum.textContent = title;
+      var wrap = document.createElement('div');
+      wrap.className = 'catalog-section';
+      var hdr = document.createElement('div');
+      hdr.className = 'section-summary';
+      hdr.textContent = title;
       var body = document.createElement('div');
       body.className = 'section-body';
-      details.appendChild(sum);
-      details.appendChild(body);
-      details.clipContainer = body;
-      return details;
+      wrap.appendChild(hdr);
+      wrap.appendChild(body);
+      wrap.clipContainer = body;
+      wrap.summaryEl = hdr;
+      return wrap;
     }
 
     document.getElementById('hear-ids').onclick = function () {
@@ -1045,6 +1053,15 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       });
     })();
 
+    (function initScrollToTop() {
+      var btn = document.getElementById('scroll-to-top');
+      if (!btn) return;
+      window.addEventListener('scroll', function () {
+        btn.style.display = window.scrollY > 300 ? 'flex' : 'none';
+      }, { passive: true });
+      btn.onclick = function () { window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    })();
+
     var catalogLoadingInFlight = false;
 
     var INBOX_PAGE_SIZE = 80;
@@ -1055,6 +1072,111 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     var inboxTotalPages = 0;
     var inboxPagerTop = null;
     var inboxPagerBottom = null;
+
+    // Client-side pagination state for Barks and Not Barks
+    var barksAllRows = [];
+    var barksCurrentPage = 1;
+    var barksPagerTop = null;
+    var barksPagerBottom = null;
+
+    var notBarksAllRows = [];
+    var notBarksCurrentPage = 1;
+    var notBarksPagerTop = null;
+    var notBarksPagerBottom = null;
+
+    function createSimplePager(getPage, setPage, getTotal, renderFn) {
+      var wrapper = document.createElement('div');
+      wrapper.className = 'pagination-controls';
+
+      var prev = document.createElement('button');
+      prev.type = 'button';
+      prev.className = 'load-more-btn';
+      prev.textContent = 'Prev';
+
+      var pageInfo = document.createElement('span');
+      pageInfo.className = 'pagination-page';
+
+      var select = document.createElement('select');
+      select.className = 'page-select';
+      select.title = 'Go to page';
+
+      var next = document.createElement('button');
+      next.type = 'button';
+      next.className = 'load-more-btn';
+      next.textContent = 'Next';
+
+      function update() {
+        var total = getTotal();
+        var cur = getPage();
+        prev.disabled = cur <= 1;
+        next.disabled = cur >= total;
+        pageInfo.textContent = 'Page ' + cur + ' / ' + total;
+        select.textContent = '';
+        if (total <= 1) { select.style.display = 'none'; } else {
+          select.style.display = '';
+          for (var p = 1; p <= total; p++) {
+            var opt = document.createElement('option');
+            opt.value = String(p);
+            opt.textContent = String(p);
+            select.appendChild(opt);
+          }
+          select.value = String(cur);
+        }
+      }
+
+      prev.onclick = function () { if (getPage() > 1) { setPage(getPage() - 1); renderFn(); } };
+      next.onclick = function () { if (getPage() < getTotal()) { setPage(getPage() + 1); renderFn(); } };
+      select.onchange = function () { var n = parseInt(select.value, 10); if (!isNaN(n)) { setPage(n); renderFn(); } };
+
+      wrapper.appendChild(prev);
+      wrapper.appendChild(pageInfo);
+      wrapper.appendChild(select);
+      wrapper.appendChild(next);
+
+      return { root: wrapper, update: update };
+    }
+
+    function renderBarksPage() {
+      var panelBarks = document.getElementById('panel-barks');
+      if (!panelBarks) return;
+      var total = Math.max(1, Math.ceil(barksAllRows.length / INBOX_PAGE_SIZE));
+      barksCurrentPage = Math.max(1, Math.min(barksCurrentPage, total));
+      var start = (barksCurrentPage - 1) * INBOX_PAGE_SIZE;
+      var rows = barksAllRows.slice(start, start + INBOX_PAGE_SIZE);
+      var body = panelBarks.querySelector('.bark-body');
+      if (body) body.innerHTML = '';
+      rows.forEach(function (row, i) {
+        var parts = [
+          'bytes=' + (row.bytes || 0),
+          catalogRmsPart(row),
+          row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
+        ].filter(Boolean);
+        appendClip(body, row.name, parts.join(' · '), '/api/training/custom-clips/bark/' + encodeURIComponent(row.name) + '/audio', undefined, start + i + 1);
+      });
+      [barksPagerTop, barksPagerBottom].forEach(function (p) { if (p) p.update(); });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function renderNotBarksPage() {
+      var panelNotBarks = document.getElementById('panel-not-barks');
+      if (!panelNotBarks) return;
+      var total = Math.max(1, Math.ceil(notBarksAllRows.length / INBOX_PAGE_SIZE));
+      notBarksCurrentPage = Math.max(1, Math.min(notBarksCurrentPage, total));
+      var start = (notBarksCurrentPage - 1) * INBOX_PAGE_SIZE;
+      var rows = notBarksAllRows.slice(start, start + INBOX_PAGE_SIZE);
+      var body = panelNotBarks.querySelector('.not-bark-body');
+      if (body) body.innerHTML = '';
+      rows.forEach(function (row, i) {
+        var parts = [
+          'bytes=' + (row.bytes || 0),
+          catalogRmsPart(row),
+          row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
+        ].filter(Boolean);
+        appendClip(body, row.name, parts.join(' · '), '/api/training/custom-clips/not_bark/' + encodeURIComponent(row.name) + '/audio', undefined, start + i + 1);
+      });
+      [notBarksPagerTop, notBarksPagerBottom].forEach(function (p) { if (p) p.update(); });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
 
     function inboxPagers() {
       var pages = [];
@@ -1228,7 +1350,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
               inboxSection = section('Training inbox (' + inboxTotalCount + ')');
               appendInboxRows(inboxRows, 0);
               inboxLoadedCount = inboxRows.length;
-              var header = inboxSection.querySelector('summary.section-summary');
+              var header = inboxSection.summaryEl;
               if (header) {
                 header.textContent = 'Training inbox (' + inboxTotalCount + ') — page ' + inboxCurrentPage + ' / ' + inboxTotalPages;
               }
@@ -1255,24 +1377,52 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
             }
 
             var cb = (data.custom && data.custom.bark) || [];
-            cb.forEach(function (row, i) {
-              var parts = [
-                'bytes=' + (row.bytes || 0),
-                catalogRmsPart(row),
-                row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
-              ].filter(Boolean);
-              appendClip(panelBarks, row.name, parts.join(' · '), '/api/training/custom-clips/bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
-            });
+            barksAllRows = cb;
+            barksCurrentPage = 1;
+            if (cb.length) {
+              var barkBody = document.createElement('div');
+              barkBody.className = 'bark-body';
+              barksPagerTop = createSimplePager(
+                function () { return barksCurrentPage; },
+                function (p) { barksCurrentPage = p; },
+                function () { return Math.max(1, Math.ceil(barksAllRows.length / INBOX_PAGE_SIZE)); },
+                renderBarksPage
+              );
+              barksPagerBottom = createSimplePager(
+                function () { return barksCurrentPage; },
+                function (p) { barksCurrentPage = p; },
+                function () { return Math.max(1, Math.ceil(barksAllRows.length / INBOX_PAGE_SIZE)); },
+                renderBarksPage
+              );
+              panelBarks.appendChild(barksPagerTop.root);
+              panelBarks.appendChild(barkBody);
+              panelBarks.appendChild(barksPagerBottom.root);
+              renderBarksPage();
+            }
 
             var cn = (data.custom && data.custom.not_bark) || [];
-            cn.forEach(function (row, i) {
-              var parts = [
-                'bytes=' + (row.bytes || 0),
-                catalogRmsPart(row),
-                row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
-              ].filter(Boolean);
-              appendClip(panelNotBarks, row.name, parts.join(' · '), '/api/training/custom-clips/not_bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
-            });
+            notBarksAllRows = cn;
+            notBarksCurrentPage = 1;
+            if (cn.length) {
+              var notBarkBody = document.createElement('div');
+              notBarkBody.className = 'not-bark-body';
+              notBarksPagerTop = createSimplePager(
+                function () { return notBarksCurrentPage; },
+                function (p) { notBarksCurrentPage = p; },
+                function () { return Math.max(1, Math.ceil(notBarksAllRows.length / INBOX_PAGE_SIZE)); },
+                renderNotBarksPage
+              );
+              notBarksPagerBottom = createSimplePager(
+                function () { return notBarksCurrentPage; },
+                function (p) { notBarksCurrentPage = p; },
+                function () { return Math.max(1, Math.ceil(notBarksAllRows.length / INBOX_PAGE_SIZE)); },
+                renderNotBarksPage
+              );
+              panelNotBarks.appendChild(notBarksPagerTop.root);
+              panelNotBarks.appendChild(notBarkBody);
+              panelNotBarks.appendChild(notBarksPagerBottom.root);
+              renderNotBarksPage();
+            }
 
             var tabsEl = document.getElementById('catalog-tabs');
             var countInbox = document.getElementById('tab-count-inbox');
@@ -1291,7 +1441,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
               status.textContent = 'No WAV files found under training_inbox, mic_temp, or custom_clips.';
             }
           } else {
-            var header = inboxSection && inboxSection.querySelector('summary.section-summary');
+            var header = inboxSection && inboxSection.summaryEl;
             if (header) {
               header.textContent = 'Training inbox (' + inboxTotalCount + ') — page ' + inboxCurrentPage + ' / ' + inboxTotalPages;
             }
@@ -1330,6 +1480,8 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
 
     function loadAudioCatalog() {
       if (catalogLoadingInFlight) return;
+      barksAllRows = []; barksCurrentPage = 1; barksPagerTop = null; barksPagerBottom = null;
+      notBarksAllRows = []; notBarksCurrentPage = 1; notBarksPagerTop = null; notBarksPagerBottom = null;
       ['panel-inbox', 'panel-barks', 'panel-not-barks'].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) el.textContent = '';
