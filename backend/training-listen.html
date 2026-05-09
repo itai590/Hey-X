@@ -79,6 +79,27 @@
     }
     details.catalog-section .section-body { padding-left: 0.15rem; }
     button.load-more-btn { margin: 0.5rem 0; display: block; }
+    .pagination-controls {
+      margin: 0.4rem 0 0.6rem;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+    .pagination-controls .pagination-page {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+    .pagination-controls .page-select {
+      background: var(--bg-elev);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      padding: 0.32rem 0.45rem;
+      font-size: 0.8rem;
+      max-width: 4.8rem;
+    }
     .training-toolbar {
       margin-bottom: 1rem;
       display: flex;
@@ -963,11 +984,116 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       applyToolbarButtonState();
     }
 
-    var INBOX_PAGE_SIZE = 50;
+    var INBOX_PAGE_SIZE = 80;
     var inboxSection = null;   // persists across "load more" calls
     var inboxLoadedCount = 0;
     var inboxTotalCount = 0;
-    var inboxLoadMoreBtn = null;
+    var inboxCurrentPage = 0;
+    var inboxTotalPages = 0;
+    var inboxPagerTop = null;
+    var inboxPagerBottom = null;
+
+    function inboxPagers() {
+      var pages = [];
+      if (inboxPagerTop) pages.push(inboxPagerTop);
+      if (inboxPagerBottom && inboxPagerBottom !== inboxPagerTop) pages.push(inboxPagerBottom);
+      return pages;
+    }
+
+    function buildPageSelectOptions(pager) {
+      if (!pager || !pager.pageSelect) return;
+      pager.pageSelect.textContent = '';
+      if (inboxTotalPages <= 1) {
+        pager.pageSelect.style.display = 'none';
+        return;
+      }
+      pager.pageSelect.style.display = '';
+      for (var p = 1; p <= inboxTotalPages; p++) {
+        var opt = document.createElement('option');
+        opt.value = String(p);
+        opt.textContent = String(p);
+        pager.pageSelect.appendChild(opt);
+      }
+      pager.pageSelect.value = String(Math.max(1, Math.min(inboxCurrentPage, inboxTotalPages)));
+    }
+
+    function setLoadMoreLoading(isLoading) {
+      inboxPagers().forEach(function (pager) {
+        if (!pager || !pager.root) return;
+        pager.prevBtn.disabled = !!isLoading || pager.prevBtn.disabled;
+        pager.nextBtn.disabled = !!isLoading || pager.nextBtn.disabled;
+        if (pager.pageSelect) pager.pageSelect.disabled = !!isLoading;
+      });
+    }
+
+    function renderPagination() {
+      var pages = inboxPagers();
+      if (!pages.length) return;
+      var shownThrough = Math.min(inboxCurrentPage * INBOX_PAGE_SIZE, inboxTotalCount);
+      var remaining = inboxTotalCount - shownThrough;
+      pages.forEach(function (pager) {
+        pager.prevBtn.disabled = inboxCurrentPage <= 1;
+        pager.nextBtn.disabled = remaining <= 0;
+        pager.pageInfo.textContent = 'Page ' + inboxCurrentPage + ' / ' + inboxTotalPages + (remaining <= 0 ? ' (last page)' : '');
+        buildPageSelectOptions(pager);
+      });
+    }
+
+    function goToInboxPage(targetPage) {
+      var total = inboxTotalPages || 1;
+      if (!Number.isFinite(targetPage)) return;
+      if (targetPage < 1 || targetPage > total || targetPage === inboxCurrentPage) return;
+      var offset = (targetPage - 1) * INBOX_PAGE_SIZE;
+      loadInboxPage(offset, false, true);
+    }
+
+    function createInboxPager() {
+      var wrapper = document.createElement('div');
+      wrapper.className = 'pagination-controls';
+
+      var prev = document.createElement('button');
+      prev.type = 'button';
+      prev.className = 'load-more-btn';
+      prev.textContent = 'Prev';
+
+      var pageInfo = document.createElement('span');
+      pageInfo.className = 'pagination-page';
+      pageInfo.textContent = 'Page 1 / 1';
+
+      var select = document.createElement('select');
+      select.className = 'page-select';
+      select.title = 'Go to page';
+
+      var next = document.createElement('button');
+      next.type = 'button';
+      next.className = 'load-more-btn';
+      next.textContent = 'Next';
+
+      prev.addEventListener('click', function () {
+        goToInboxPage(inboxCurrentPage - 1);
+      });
+      next.addEventListener('click', function () {
+        goToInboxPage(inboxCurrentPage + 1);
+      });
+      select.onchange = function () {
+        var n = parseInt(select.value, 10);
+        if (Number.isNaN(n)) return;
+        goToInboxPage(n);
+      };
+
+      wrapper.appendChild(prev);
+      wrapper.appendChild(pageInfo);
+      wrapper.appendChild(select);
+      wrapper.appendChild(next);
+
+      return {
+        root: wrapper,
+        prevBtn: prev,
+        pageInfo: pageInfo,
+        pageSelect: select,
+        nextBtn: next,
+      };
+    }
 
     function appendInboxRows(rows, startIndex) {
       rows.forEach(function (row, i) {
@@ -992,20 +1118,17 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     }
 
     function updateInboxLoadMoreBtn() {
-      if (!inboxLoadMoreBtn) return;
-      var remaining = inboxTotalCount - inboxLoadedCount;
-      if (remaining <= 0) {
-        inboxLoadMoreBtn.style.display = 'none';
-      } else {
-        inboxLoadMoreBtn.style.display = '';
-        inboxLoadMoreBtn.textContent = 'Load more (' + remaining + ' remaining)';
-      }
+      renderPagination();
+      setLoadMoreLoading(false);
     }
 
-    function loadInboxPage(offset, isFirstLoad) {
+    function loadInboxPage(offset, isFirstLoad, replaceInboxRows) {
+      var pageNum = Math.floor((offset || 0) / INBOX_PAGE_SIZE) + 1;
       var status = document.getElementById('status');
       if (isFirstLoad) setCatalogButtonsBusy(true);
-      else if (inboxLoadMoreBtn) { inboxLoadMoreBtn.disabled = true; inboxLoadMoreBtn.textContent = 'Loading…'; }
+      else if (inboxPagers().length) {
+        setLoadMoreLoading(true);
+      }
 
       var url = '/api/training/audio-catalog?limit=' + INBOX_PAGE_SIZE + '&offset=' + offset;
       fetch(heyApi(url), { headers: authHeaders(), cache: 'no-store' })
@@ -1024,26 +1147,53 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
 
           var inboxRows = data.inbox || [];
           inboxTotalCount = data.inboxTotal != null ? data.inboxTotal : inboxRows.length;
+          inboxTotalPages = Math.max(1, Math.ceil(inboxTotalCount / INBOX_PAGE_SIZE));
+          inboxCurrentPage = pageNum;
 
           if (isFirstLoad) {
             inboxLoadedCount = 0;
             inboxSection = null;
-            inboxLoadMoreBtn = null;
+            inboxPagerTop = null;
+            inboxPagerBottom = null;
             var out = document.getElementById('out');
 
             if (inboxTotalCount > 0) {
               inboxSection = section('Training inbox (' + inboxTotalCount + ')');
               appendInboxRows(inboxRows, 0);
               inboxLoadedCount = inboxRows.length;
+              var header = inboxSection.querySelector('summary.section-summary');
+              if (header) {
+                header.textContent = 'Training inbox (' + inboxTotalCount + ') — page ' + inboxCurrentPage + ' / ' + inboxTotalPages;
+              }
 
-              inboxLoadMoreBtn = document.createElement('button');
-              inboxLoadMoreBtn.className = 'load-more-btn';
-              inboxSection.appendChild(inboxLoadMoreBtn);
-              updateInboxLoadMoreBtn();
-              inboxLoadMoreBtn.addEventListener('click', function () {
-                loadInboxPage(inboxLoadedCount, false);
-              });
+              inboxPagerTop = createInboxPager();
+              inboxPagerBottom = createInboxPager();
+              out.appendChild(inboxPagerTop.root);
+              inboxPagerTop.nextBtn.onclick = function () {
+                loadInboxPage(inboxCurrentPage * INBOX_PAGE_SIZE, false, true);
+              };
+              inboxPagerTop.prevBtn.onclick = function () {
+                goToInboxPage(inboxCurrentPage - 1);
+              };
+              inboxPagerTop.pageSelect.onchange = function () {
+                var n = parseInt(inboxPagerTop.pageSelect.value, 10);
+                if (!Number.isNaN(n)) goToInboxPage(n);
+              };
+
               out.appendChild(inboxSection);
+
+              inboxPagerBottom.nextBtn.onclick = function () {
+                loadInboxPage(inboxCurrentPage * INBOX_PAGE_SIZE, false, true);
+              };
+              inboxPagerBottom.prevBtn.onclick = function () {
+                goToInboxPage(inboxCurrentPage - 1);
+              };
+              inboxPagerBottom.pageSelect.onchange = function () {
+                var n = parseInt(inboxPagerBottom.pageSelect.value, 10);
+                if (!Number.isNaN(n)) goToInboxPage(n);
+              };
+
+              out.appendChild(inboxPagerBottom.root);
             }
 
             var mic = data.micTemp || [];
@@ -1088,21 +1238,43 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
               out.appendChild(s4);
             }
 
+            if (inboxPagerTop || inboxPagerBottom) {
+              updateInboxLoadMoreBtn();
+            }
+
             if (!inboxTotalCount && !mic.length && !cb.length && !cn.length) {
               status.textContent = 'No WAV files found under training_inbox, mic_temp, or custom_clips.';
             }
           } else {
-            // "Load more" — append to existing inbox section
-            appendInboxRows(inboxRows, inboxLoadedCount);
-            inboxLoadedCount += inboxRows.length;
-            if (inboxLoadMoreBtn) inboxLoadMoreBtn.disabled = false;
+            var header = inboxSection && inboxSection.querySelector('summary.section-summary');
+            if (header) {
+              header.textContent = 'Training inbox (' + inboxTotalCount + ') — page ' + inboxCurrentPage + ' / ' + inboxTotalPages;
+            }
+            if (replaceInboxRows || !inboxSection) {
+              if (!inboxSection) {
+                inboxSection = section('Training inbox (' + inboxTotalCount + ')');
+              }
+              if (inboxSection.clipContainer) {
+                inboxSection.clipContainer.innerHTML = '';
+              }
+              appendInboxRows(inboxRows, (inboxCurrentPage - 1) * INBOX_PAGE_SIZE);
+              inboxLoadedCount = inboxRows.length;
+            } else {
+              // "Load more" — append to existing inbox section
+              appendInboxRows(inboxRows, inboxLoadedCount);
+              inboxLoadedCount += inboxRows.length;
+            }
+            setLoadMoreLoading(false);
             updateInboxLoadMoreBtn();
           }
         })
         .catch(function (e) {
           var status = document.getElementById('status');
           status.innerHTML = '<span class="err">' + String(e.message || e) + '</span>';
-          if (inboxLoadMoreBtn) { inboxLoadMoreBtn.disabled = false; updateInboxLoadMoreBtn(); }
+          if (inboxPagers().length) {
+            setLoadMoreLoading(false);
+            updateInboxLoadMoreBtn();
+          }
         })
         .finally(function () {
           if (isFirstLoad) setCatalogButtonsBusy(false);
