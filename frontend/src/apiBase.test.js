@@ -33,11 +33,13 @@ describe('trainingListenPageUrl', () => {
 
   test('without VITE_BACKEND_ORIGIN uses apiUrl /api/training/listen', () => {
     vi.stubEnv('BASE_URL', '/');
+    vi.stubEnv('VITE_BACKEND_ORIGIN', '');
     expect(trainingListenPageUrl()).toBe('/api/training/listen');
   });
 
   test('with subpath base includes basename before /api/training/listen', () => {
     vi.stubEnv('BASE_URL', `${SUBPATH_BASE}/`);
+    vi.stubEnv('VITE_BACKEND_ORIGIN', '');
     expect(trainingListenPageUrl()).toBe(`${SUBPATH_BASE}/api/training/listen`);
   });
 
