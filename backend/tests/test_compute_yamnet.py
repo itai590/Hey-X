@@ -26,6 +26,12 @@ class TestComputeYamnetIsBark(unittest.TestCase):
         self.assertTrue(ok)
         self.assertTrue(relaxed)
 
+    def test_ambiguous_top_class_relaxed_rule(self):
+        labels = [{"class": "Animal", "score": 0.3}]
+        ok, relaxed = compute_yamnet_is_bark(labels, 0.16, 0.25)
+        self.assertTrue(ok)
+        self.assertTrue(relaxed)
+
 
 if __name__ == "__main__":
     unittest.main()

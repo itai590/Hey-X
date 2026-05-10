@@ -5,8 +5,8 @@ info:
   description: |
     Backend for bark detection, SQLite messages, and WAV training workflows.
 
-    **Admin routes** use `Authorization: Bearer <HEY_ADMIN_TOKEN>` when that env var is set.
-    When unset, mutating routes may still be open — prefer setting the token in production.
+    **Admin routes** require `Authorization: Bearer <HEY_ADMIN_TOKEN>`.
+    If `HEY_ADMIN_TOKEN` is unset, admin and training APIs return **401** until it is configured.
   version: 1.0.0
 
 servers:
@@ -55,11 +55,19 @@ paths:
                 type: object
                 properties:
                   ok: { type: boolean }
-                  authDisabled:
-                    type: boolean
-                    description: Present when HEY_ADMIN_TOKEN is unset
         "401":
           description: Invalid credentials
+        "503":
+          description: HEY_ADMIN_TOKEN is not set on the server
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  authDisabled: { type: boolean }
+                  code: { type: string, example: ADMIN_TOKEN_NOT_SET }
+                  detail: { type: string }
 
   /api/messages:
     get:
@@ -316,6 +324,42 @@ paths:
           description: Unauthorized
         "500":
           description: Server error
+
+  /api/training/inbox/{clipId}/wav-meta:
+    get:
+      tags: [ Training ]
+      summary: RMS and capturedAt for an inbox or promoted clip (used by pasted-ID playback)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: clipId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Metadata JSON
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clipId:
+                    type: string
+                  rms:
+                    type: number
+                    nullable: true
+                  capturedAt:
+                    type: string
+                    nullable: true
+        "400":
+          description: Invalid clip id
+        "401":
+          description: Unauthorized
+        "404":
+          description: Clip not found or expired
 
   /api/training/inbox/{clipId}/audio:
     get:

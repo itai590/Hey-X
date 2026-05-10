@@ -1,5 +1,5 @@
 /**
- * Confirms HEY_ADMIN_TOKEN_PREVIOUS is not accepted (no rotation overlap).
+ * Legacy Bearer strings must not authenticate main-admin routes; primary HEY_ADMIN_TOKEN works for verify-admin.
  */
 const fs = require('fs');
 const os = require('os');

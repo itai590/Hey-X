@@ -346,12 +346,12 @@ function auditMutatingRoute(req, res, next) {
   next();
 }
 
+/** Compare UTF-8 strings via SHA-256 digests so length is not leaked via early exit. */
 function timingSafeEqualStrings(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
-  const bufa = Buffer.from(a, 'utf8');
-  const bufb = Buffer.from(b, 'utf8');
-  if (bufa.length !== bufb.length) return false;
-  return crypto.timingSafeEqual(bufa, bufb);
+  const ha = crypto.createHash('sha256').update(a, 'utf8').digest();
+  const hb = crypto.createHash('sha256').update(b, 'utf8').digest();
+  return crypto.timingSafeEqual(ha, hb);
 }
 
 function adminCredentialMatches(candidate, primaryRaw) {
@@ -461,7 +461,15 @@ function throttleVerifyAdmin(req, res, next) {
 }
 
 function requireMainAdmin(req, res, next) {
-  if (!MAIN_ADMIN_ACTIVE) return next();
+  if (!MAIN_ADMIN_ACTIVE) {
+    res.set('WWW-Authenticate', 'Bearer realm="hey-main-admin"');
+    return res.status(401).json({
+      error: 'Unauthorized',
+      needsAdminAuth: true,
+      code: 'ADMIN_TOKEN_NOT_SET',
+      detail: 'Set HEY_ADMIN_TOKEN on the server and restart.',
+    });
+  }
   const sent = getBearerTokenStrict(req);
   const key = `${clientKeyForGuards(req)}|main-admin`;
   if (!sent || !candidateMatchesAudience(sent, 'main')) {
@@ -493,7 +501,8 @@ function requireDocsAdmin(req, res, next) {
     return res.status(401).json({
       error: 'Unauthorized',
       needsAdminAuth: true,
-      detail: 'Set HEY_ADMIN_TOKEN for /api/docs and OpenAPI YAML.',
+      code: 'ADMIN_TOKEN_NOT_SET',
+      detail: 'Set HEY_ADMIN_TOKEN on the server and restart.',
     });
   }
 
@@ -515,8 +524,8 @@ function requireDocsAdmin(req, res, next) {
 }
 
 if (!ANY_ADMIN_ACTIVE) {
-  console.warn(
-    '[security] No admin tokens set — anyone who can reach this server can use mutating APIs and training/docs where applicable. Set HEY_ADMIN_TOKEN.',
+  console.error(
+    '[security] HEY_ADMIN_TOKEN is not set — admin APIs, training routes, and docs will return 401 until you configure HEY_ADMIN_TOKEN and restart.',
   );
 } else {
   console.log('[security] HEY_ADMIN_TOKEN is set — mutating APIs + training WAV routes require Authorization: Bearer …');
@@ -786,10 +795,21 @@ function parseCorsOrigins() {
 }
 const ALLOWED_ORIGINS = parseCorsOrigins();
 
+/** Dev convenience: localhost / 127.0.0.1 / RFC1918 192.168.x.y with valid octets only. */
+function corsAllowsDevLanOrigin(origin) {
+  if (!origin || typeof origin !== 'string') return false;
+  if (/^https?:\/\/localhost(?::\d+)?$/i.test(origin)) return true;
+  if (/^https?:\/\/127\.0\.0\.1(?::\d+)?$/i.test(origin)) return true;
+  const m = /^https?:\/\/192\.168\.(\d{1,3})\.(\d{1,3})(?::\d+)?$/i.exec(origin);
+  if (!m) return false;
+  const o2 = parseInt(m[1], 10);
+  const o3 = parseInt(m[2], 10);
+  return o2 >= 0 && o2 <= 255 && o3 >= 0 && o3 <= 255;
+}
+
 app.use(cors({
   origin(origin, cb) {
-    if (!origin || ALLOWED_ORIGINS.includes(origin) ||
-      /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(origin)) {
+    if (!origin || ALLOWED_ORIGINS.includes(origin) || corsAllowsDevLanOrigin(origin)) {
       return cb(null, true);
     }
     cb(new Error('Not allowed by CORS'));
@@ -804,7 +824,12 @@ app.use(express.json({ limit: '16kb' }));
 app.post('/api/auth/verify-admin', throttleVerifyAdmin, (req, res) => {
   const audience = verifyAudienceFromBody(req.body);
   if (!audienceAuthActive(audience)) {
-    return res.json({ ok: true, authDisabled: true, audience });
+    return res.status(503).json({
+      error: 'Admin authentication is not configured on the server',
+      authDisabled: true,
+      code: 'ADMIN_TOKEN_NOT_SET',
+      detail: 'Set HEY_ADMIN_TOKEN on the server and restart.',
+    });
   }
   const key = `${clientKeyForGuards(req)}|${audience}`;
   const pwd = req.body && typeof req.body.password === 'string' ? req.body.password.trim() : '';
@@ -1181,9 +1206,11 @@ app.post('/api/custom-head/train', requireMainAdmin, auditMutatingRoute, (_req, 
     stderr += d.toString();
   });
   child.on('error', (err) => {
+    if (res.headersSent) return;
     res.status(500).json({ error: String(err.message || err) });
   });
   child.on('close', (code) => {
+    if (res.headersSent) return;
     const lines = stdout.trim().split('\n').filter(Boolean);
     let summary = null;
     if (lines.length) {

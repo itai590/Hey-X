@@ -576,6 +576,16 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       } catch (e) { /* private mode */ }
     }
 
+    /** Safe status line for errors (avoid innerHTML with server-controlled strings). */
+    function setStatusError(el, message) {
+      if (!el) return;
+      el.textContent = '';
+      var span = document.createElement('span');
+      span.className = 'err';
+      span.textContent = String(message != null ? message : '');
+      el.appendChild(span);
+    }
+
     function trainingActionsAllowed() {
       if (serverAdminPasswordRequired === false) return true;
       if (serverAdminPasswordRequired === true && getAdminSessionToken()) return true;
@@ -648,7 +658,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
           });
         })
         .catch(function () {
-          return { required: false, probeError: true };
+          return { required: true, probeError: true };
         });
     }
 
@@ -695,16 +705,22 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       })
         .then(function (r) {
           return r.json().then(function (body) {
-            return { ok: r.ok, body: body };
+            return { ok: r.ok, status: r.status, body: body };
+          }).catch(function () {
+            return { ok: r.ok, status: r.status, body: {} };
           });
         })
         .then(function (x) {
-          if (x.body && x.body.authDisabled === true) {
-            setAdminSessionToken('');
-            serverAdminPasswordRequired = false;
-            closeTrainingLoginModal();
-            refreshTrainingAuthChrome();
-            loadAudioCatalog();
+          var notConfigured =
+            x.status === 503 ||
+            (x.body && x.body.authDisabled === true) ||
+            (x.body && x.body.code === 'ADMIN_TOKEN_NOT_SET');
+          if (notConfigured) {
+            if (err) {
+              err.textContent = typeof x.body.detail === 'string'
+                ? x.body.detail
+                : 'HEY_ADMIN_TOKEN is not set on the server — configure it and restart.';
+            }
             return;
           }
           if (!x.ok || !x.body || !x.body.ok) {
@@ -1466,7 +1482,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         })
         .catch(function (e) {
           var status = document.getElementById('status');
-          status.innerHTML = '<span class="err">' + String(e.message || e) + '</span>';
+          setStatusError(status, e.message || e);
           if (inboxPagers().length) {
             setLoadMoreLoading(false);
             updateInboxLoadMoreBtn();
@@ -1530,8 +1546,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         })
         .then(function (x) {
           if (x.status === 401) {
-            status.innerHTML =
-              '<span class="err">Unauthorized — tap the lock and enter HEY_ADMIN_TOKEN.</span>';
+            setStatusError(status, 'Unauthorized — tap the lock and enter HEY_ADMIN_TOKEN.');
             return;
           }
           if (x.ok && x.j && x.j.ok) {
@@ -1622,14 +1637,12 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         })
         .then(function (x) {
           if (x.status === 401) {
-            status.innerHTML =
-              '<span class="err">Unauthorized — tap the lock and enter HEY_ADMIN_TOKEN.</span>';
+            setStatusError(status, 'Unauthorized — tap the lock and enter HEY_ADMIN_TOKEN.');
             setCatalogButtonsBusy(false);
             return;
           }
           if (!x.ok || !x.j || !x.j.ok) {
-            status.innerHTML =
-              '<span class="err">' + ((x.j && x.j.error) ? x.j.error : 'HTTP ' + x.status) + '</span>';
+            setStatusError(status, (x.j && x.j.error) ? x.j.error : ('HTTP ' + x.status));
             setCatalogButtonsBusy(false);
             return;
           }
@@ -1638,7 +1651,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
           loadAudioCatalog();
         })
         .catch(function (e) {
-          status.innerHTML = '<span class="err">' + String(e.message || e) + '</span>';
+          setStatusError(status, e.message || e);
           setCatalogButtonsBusy(false);
         });
     };
