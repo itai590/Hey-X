@@ -35,8 +35,8 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
   const submit = async () => {
     const u = username.trim();
     const t = password.trim();
-    if (!u || !t) {
-      setError('Enter username and admin password');
+    if (!t) {
+      setError('Enter HEY_ADMIN_TOKEN');
       return;
     }
     setError('');
@@ -100,21 +100,21 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
       </DialogTitle>
       <DialogContent>
         <Typography variant="body2" sx={{ color: 'grey.400', mb: 2 }}>
-          Use your admin username and password to change settings or delete barks. The password value must match{' '}
+          Enter a display name (optional, recorded on the server when you sign in for audit) and the secret that matches{' '}
           <Typography component="span" variant="body2" sx={{ fontFamily: 'monospace', color: '#a5d6a7' }}>
             HEY_ADMIN_TOKEN
           </Typography>{' '}
-          on the Pi. Stored in this browser tab until you close it.
+          on the Pi. The token is stored in this browser tab until you close it.
         </Typography>
-        <Box component="form" autoComplete="off" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+        <Box component="form" autoComplete="on" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
           <TextField
             autoFocus
             fullWidth
             variant="outlined"
             type="text"
-            label="Username"
-            name="hey-admin-display-name"
-            autoComplete="off"
+            label="Display name (optional)"
+            name="hey-display-name"
+            autoComplete="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             sx={{
@@ -127,7 +127,7 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
               autoCapitalize: 'none',
               autoCorrect: 'off',
               spellCheck: false,
-              autoComplete: 'off',
+              autoComplete: 'username',
             }}
           />
           <TextField

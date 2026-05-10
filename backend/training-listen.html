@@ -648,7 +648,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
           });
         })
         .catch(function () {
-          return { required: true };
+          return { required: false, probeError: true };
         });
     }
 
@@ -683,8 +683,8 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       var pwd = passEl && passEl.value ? String(passEl.value).trim() : '';
       var user = userEl && userEl.value ? String(userEl.value).trim() : '';
       if (err) err.textContent = '';
-      if (!user || !pwd) {
-        if (err) err.textContent = 'Enter username and password.';
+      if (!pwd) {
+        if (err) err.textContent = 'Enter HEY_ADMIN_TOKEN.';
         return;
       }
 
@@ -762,6 +762,12 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       probeServerAdminPassword().then(function (p) {
         serverAdminPasswordRequired = !!(p && p.required);
         refreshTrainingAuthChrome();
+        if (p && p.probeError) {
+          var st = document.getElementById('status');
+          if (st && !st.textContent) {
+            st.textContent = 'Could not reach server — check connection and refresh.';
+          }
+        }
         if (trainingActionsAllowed()) {
           loadAudioCatalog();
         }
@@ -1059,6 +1065,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     })();
 
     var catalogLoadingInFlight = false;
+    var inboxPageLoadInFlight = false;
 
     var INBOX_PAGE_SIZE = 80;
     var inboxSection = null;   // persists across "load more" calls
@@ -1199,11 +1206,15 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     }
 
     function setLoadMoreLoading(isLoading) {
+      if (!isLoading) {
+        renderPagination();
+        return;
+      }
       inboxPagers().forEach(function (pager) {
         if (!pager || !pager.root) return;
-        pager.prevBtn.disabled = !!isLoading || pager.prevBtn.disabled;
-        pager.nextBtn.disabled = !!isLoading || pager.nextBtn.disabled;
-        if (pager.pageSelect) pager.pageSelect.disabled = !!isLoading;
+        pager.prevBtn.disabled = true;
+        pager.nextBtn.disabled = true;
+        if (pager.pageSelect) pager.pageSelect.disabled = true;
       });
     }
 
@@ -1299,13 +1310,16 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     }
 
     function updateInboxLoadMoreBtn() {
-      renderPagination();
       setLoadMoreLoading(false);
     }
 
     function loadInboxPage(offset, isFirstLoad, replaceInboxRows) {
       var pageNum = Math.floor((offset || 0) / INBOX_PAGE_SIZE) + 1;
       var status = document.getElementById('status');
+      if (!isFirstLoad) {
+        if (inboxPageLoadInFlight) return;
+        inboxPageLoadInFlight = true;
+      }
       if (isFirstLoad) {
         catalogLoadingInFlight = true;
         setCatalogButtonsBusy(true);
@@ -1461,6 +1475,8 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
           if (isFirstLoad) {
             catalogLoadingInFlight = false;
             setCatalogButtonsBusy(false);
+          } else {
+            inboxPageLoadInFlight = false;
           }
         });
     }

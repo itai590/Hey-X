@@ -58,7 +58,6 @@ export default function BackendLogsDialog({ open, onClose }) {
   const { openAdminDialog } = useAdminAuth();
   const [text, setText] = useState('');
   const [info, setInfo] = useState('');
-  const [detailPath, setDetailPath] = useState('');
   const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
   /** After 401 + login, rerun fetch once while dialog stays open */
@@ -91,7 +90,6 @@ export default function BackendLogsDialog({ open, onClose }) {
         openAdminDialog();
         setInfo('Admin password required — enter it in the lock dialog, then logs load automatically.');
         setText('');
-        setDetailPath('');
         setTruncated(false);
         return;
       }
@@ -100,7 +98,6 @@ export default function BackendLogsDialog({ open, onClose }) {
         needRetryAfterAuthRef.current = false;
         setInfo(typeof body.error === 'string' ? body.error : 'Failed to load logs');
         setText(typeof body.detail === 'string' ? body.detail : '');
-        setDetailPath('');
         setTruncated(false);
         return;
       }
@@ -108,12 +105,10 @@ export default function BackendLogsDialog({ open, onClose }) {
       const msg = typeof body.message === 'string' ? body.message : '';
       setInfo(msg);
       setText(typeof body.text === 'string' ? body.text : '');
-      setDetailPath(typeof body.path === 'string' ? body.path : '');
       setTruncated(!!body.truncated);
     } catch {
       setInfo('Network error — try again');
       setText('');
-      setDetailPath('');
       setTruncated(false);
     } finally {
       setLoading(false);
@@ -202,10 +197,9 @@ export default function BackendLogsDialog({ open, onClose }) {
             {info}
           </Typography>
         )}
-        {detailPath ? (
-          <Typography variant="caption" sx={{ color: 'grey.500', fontFamily: 'ui-monospace, monospace', wordBreak: 'break-all' }}>
-            {detailPath}
-            {truncated ? ' · showing tail only' : ''}
+        {truncated ? (
+          <Typography variant="caption" sx={{ color: 'grey.500' }}>
+            Showing tail only (see file size below if present).
           </Typography>
         ) : null}
         <Box sx={{ position: 'relative', flex: 1, minHeight: 200 }}>

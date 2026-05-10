@@ -43,6 +43,9 @@ paths:
                 password:
                   type: string
                   description: Same value as HEY_ADMIN_TOKEN (alternative to Bearer header)
+                username:
+                  type: string
+                  description: Optional display name stored for audit on successful verification (not used for authentication)
       responses:
         "200":
           description: OK

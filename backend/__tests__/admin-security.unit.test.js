@@ -28,15 +28,8 @@ const {
 
 describe('adminCredentialMatches', () => {
   test('matches primary token', () => {
-    expect(adminCredentialMatches('abc', 'abc', '')).toBe(true);
-    expect(adminCredentialMatches('abc', 'abc', 'old')).toBe(true);
-  });
-  test('matches previous rotation token only', () => {
-    expect(adminCredentialMatches('oldsecret', 'newsecret', 'oldsecret')).toBe(true);
-    expect(adminCredentialMatches('wrong', 'newsecret', 'oldsecret')).toBe(false);
-  });
-  test('empty previous is ignored', () => {
-    expect(adminCredentialMatches('oldsecret', 'newsecret', '   ')).toBe(false);
+    expect(adminCredentialMatches('abc', 'abc')).toBe(true);
+    expect(adminCredentialMatches('wrong', 'abc')).toBe(false);
   });
 });
 

@@ -315,15 +315,32 @@ function createVerifyAdminGuard(options) {
   return { checkAllowed, recordFailure, recordSuccess };
 }
 
+function xForwardedForFirst(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff !== 'string' || !xff.trim()) return '';
+  return xff.split(',')[0].trim();
+}
+
+/** Console-safe attribution behind reverse proxies (nginx sets X-Forwarded-For). */
+function auditClientDescription(req) {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  const directTcp = req.socket?.remoteAddress || '';
+  const xff = xForwardedForFirst(req);
+  const safeIp = typeof ip === 'string' ? ip : String(ip);
+  const parts = [`ip=${safeIp}`];
+  if (xff) parts.push(`xff_first=${xff}`);
+  if (directTcp && String(directTcp) !== safeIp) parts.push(`direct_tcp=${directTcp}`);
+  return parts.join(' ');
+}
+
 function auditMutatingRoute(req, res, next) {
   const start = Date.now();
-  const ip = req.ip || req.socket.remoteAddress || 'unknown';
-  const path = req.originalUrl || req.url || '';
+  const clientLine = auditClientDescription(req);
+  const urlPath = req.originalUrl || req.url || '';
   res.on('finish', () => {
     const durationMs = Date.now() - start;
-    const safeIp = typeof ip === 'string' ? ip : String(ip);
     console.log(
-      `[audit-admin] ${req.method} ${path} status=${res.statusCode} duration_ms=${durationMs} ip=${safeIp}`,
+      `[audit-admin] ${req.method} ${urlPath} status=${res.statusCode} duration_ms=${durationMs} ${clientLine}`,
     );
   });
   next();
@@ -337,11 +354,9 @@ function timingSafeEqualStrings(a, b) {
   return crypto.timingSafeEqual(bufa, bufb);
 }
 
-function adminCredentialMatches(candidate, primaryRaw, previousRaw) {
-  if (!candidate) return false;
-  if (timingSafeEqualStrings(primaryRaw, candidate)) return true;
-  if (previousRaw && timingSafeEqualStrings(previousRaw, candidate)) return true;
-  return false;
+function adminCredentialMatches(candidate, primaryRaw) {
+  if (!candidate || !primaryRaw) return false;
+  return timingSafeEqualStrings(primaryRaw, candidate);
 }
 
 function shouldBypassDocsAdminForTrustedLan(req, { trustLan, adminActive }) {
@@ -351,18 +366,11 @@ function shouldBypassDocsAdminForTrustedLan(req, { trustLan, adminActive }) {
 
 // === Admin token (Bearer) — single secret for SPA, training WAV API, Swagger, etc. ===
 const ADMIN_TOKEN_RAW = (process.env.HEY_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '').trim();
-/** Optional during rotation — still accepted until removed (narrow window recommended). */
-const ADMIN_TOKEN_PREVIOUS_RAW = (process.env.HEY_ADMIN_TOKEN_PREVIOUS || '').trim();
 
 const MAIN_ADMIN_ACTIVE = ADMIN_TOKEN_RAW.length > 0;
 const ANY_ADMIN_ACTIVE = MAIN_ADMIN_ACTIVE;
 /** When true, `/api/docs`, `/api/openapi.yaml`, and docs-gated clip upload skip Bearer for direct private-LAN IPv4 TCP peers only. */
 const HEY_DOCS_ADMIN_TRUST_LAN = parseBoolEnv(process.env.HEY_DOCS_ADMIN_TRUST_LAN, false);
-
-/** @returns {{ primary: string, previous: string }} */
-function getMainAdminSecrets() {
-  return { primary: ADMIN_TOKEN_RAW, previous: ADMIN_TOKEN_PREVIOUS_RAW };
-}
 
 /** Always `main`: single admin secret (`HEY_ADMIN_TOKEN`); optional body.audience is ignored. */
 function verifyAudienceFromBody(_body) {
@@ -374,17 +382,26 @@ function audienceAuthActive(_audience) {
 }
 
 function candidateMatchesAudience(candidate, _audience) {
-  return adminCredentialMatches(candidate, ADMIN_TOKEN_RAW, ADMIN_TOKEN_PREVIOUS_RAW);
+  return adminCredentialMatches(candidate, ADMIN_TOKEN_RAW);
 }
 
-function getBearerToken(req) {
+/** RFC 6750 Bearer token only — use for mutating APIs and verify-admin Bearer fallback. */
+function getBearerTokenStrict(req) {
   const h = req.headers.authorization;
   if (!h || typeof h !== 'string') return '';
-  const t = h.trim();
-  const m = /^Bearer\s+(.+)$/i.exec(t);
-  if (m) return m[1].trim();
-  // Bare secret (no "Bearer " prefix) — Swagger/apiKey and some clients send only the token.
-  return t;
+  const m = /^Bearer\s+(.+)$/i.exec(h.trim());
+  return m ? m[1].trim() : '';
+}
+
+/**
+ * Bearer first; bare Authorization value only for Swagger/OpenAPI (`requireDocsAdmin`) compatibility.
+ */
+function getBearerTokenAllowBare(req) {
+  const strict = getBearerTokenStrict(req);
+  if (strict) return strict;
+  const h = req.headers.authorization;
+  if (!h || typeof h !== 'string') return '';
+  return h.trim();
 }
 
 function clientKeyForGuards(req) {
@@ -399,6 +416,33 @@ const verifyAdminGuard = createVerifyAdminGuard({
   lockoutBaseMs: parsePositiveInt(process.env.HEY_VERIFY_ADMIN_LOCKOUT_BASE_MS, 120_000),
   lockoutMaxMs: parsePositiveInt(process.env.HEY_VERIFY_ADMIN_LOCKOUT_MAX_MS, 3600_000),
 });
+
+/** Failed Bearer attempts on mutating routes (high maxAttempts — lockout via consec. failures). */
+const mutatingAdminGuard = createVerifyAdminGuard({
+  windowMs: parsePositiveInt(process.env.HEY_MAIN_ADMIN_RL_WINDOW_MS, 60_000),
+  maxAttempts: parsePositiveInt(process.env.HEY_MAIN_ADMIN_RL_MAX, 1_000_000),
+  lockoutAfterFails: parsePositiveInt(process.env.HEY_MAIN_ADMIN_LOCKOUT_AFTER_FAILS, 10),
+  lockoutBaseMs: parsePositiveInt(process.env.HEY_MAIN_ADMIN_LOCKOUT_BASE_MS, 120_000),
+  lockoutMaxMs: parsePositiveInt(process.env.HEY_MAIN_ADMIN_LOCKOUT_MAX_MS, 3600_000),
+});
+
+const ADMIN_LOGIN_USERNAME_MAX = 128;
+const XFF_FIRST_MAX = 256;
+
+function insertAdminLoginAudit(req, usernameRaw) {
+  const username = typeof usernameRaw === 'string' ? usernameRaw.trim().slice(0, ADMIN_LOGIN_USERNAME_MAX) : '';
+  const loggedAt = new Date().toISOString();
+  const ip = String(req.ip || req.socket?.remoteAddress || '');
+  const xf = xForwardedForFirst(req);
+  const xffFirst = xf ? xf.slice(0, XFF_FIRST_MAX) : null;
+  try {
+    db.prepare(
+      'INSERT INTO admin_login_audit (logged_at, username, ip, xff_first) VALUES (?, ?, ?, ?)',
+    ).run(loggedAt, username || null, ip || null, xffFirst);
+  } catch (e) {
+    console.error('admin_login_audit insert failed:', e.message);
+  }
+}
 
 /** Rate-limit / lockout middleware for POST /api/auth/verify-admin only */
 function throttleVerifyAdmin(req, res, next) {
@@ -418,11 +462,24 @@ function throttleVerifyAdmin(req, res, next) {
 
 function requireMainAdmin(req, res, next) {
   if (!MAIN_ADMIN_ACTIVE) return next();
-  const sent = getBearerToken(req);
+  const sent = getBearerTokenStrict(req);
+  const key = `${clientKeyForGuards(req)}|main-admin`;
   if (!sent || !candidateMatchesAudience(sent, 'main')) {
+    const check = mutatingAdminGuard.checkAllowed(key);
+    if (!check.ok) {
+      if (typeof check.retryAfterSec === 'number' && check.retryAfterSec > 0) {
+        res.set('Retry-After', String(check.retryAfterSec));
+      }
+      const payload = check.reason === 'locked_out'
+        ? { error: 'Too many failed auth attempts — try again later.', code: 'MAIN_ADMIN_AUTH_LOCKED' }
+        : { error: 'Too many admin auth attempts — try again later.', code: 'MAIN_ADMIN_AUTH_RATE_LIMITED' };
+      return res.status(429).json(payload);
+    }
+    mutatingAdminGuard.recordFailure(key);
     res.set('WWW-Authenticate', 'Bearer realm="hey-main-admin"');
     return res.status(401).json({ error: 'Unauthorized', needsAdminAuth: true });
   }
+  mutatingAdminGuard.recordSuccess(key);
   next();
 }
 
@@ -449,8 +506,8 @@ function requireDocsAdmin(req, res, next) {
     return next();
   }
 
-  const sent = getBearerToken(req);
-  if (!sent || !adminCredentialMatches(sent, ADMIN_TOKEN_RAW, ADMIN_TOKEN_PREVIOUS_RAW)) {
+  const sent = getBearerTokenAllowBare(req);
+  if (!sent || !adminCredentialMatches(sent, ADMIN_TOKEN_RAW)) {
     res.set('WWW-Authenticate', 'Bearer realm="hey-main-admin"');
     return res.status(401).json({ error: 'Unauthorized', needsAdminAuth: true });
   }
@@ -463,9 +520,6 @@ if (!ANY_ADMIN_ACTIVE) {
   );
 } else {
   console.log('[security] HEY_ADMIN_TOKEN is set — mutating APIs + training WAV routes require Authorization: Bearer …');
-  if (ADMIN_TOKEN_PREVIOUS_RAW) {
-    console.log('[security] HEY_ADMIN_TOKEN_PREVIOUS is set — previous token accepted for rotation overlap');
-  }
   if (HEY_DOCS_ADMIN_TRUST_LAN) {
     console.log(
       '[security] HEY_DOCS_ADMIN_TRUST_LAN=true — docs/OpenAPI + docs-gated clip upload skip Bearer for direct private-LAN IPv4 TCP peers',
@@ -745,7 +799,7 @@ app.use(express.json({ limit: '16kb' }));
 
 /**
  * Public: lets a UI check a typed token before storing it (wrong token → 401 + message).
- * Validates `HEY_ADMIN_TOKEN` (+ optional `HEY_ADMIN_TOKEN_PREVIOUS`). Body `audience` is ignored (compat).
+ * Validates `HEY_ADMIN_TOKEN`. Body `audience` is ignored (compat). Optional `username` is audit-only.
  */
 app.post('/api/auth/verify-admin', throttleVerifyAdmin, (req, res) => {
   const audience = verifyAudienceFromBody(req.body);
@@ -754,13 +808,15 @@ app.post('/api/auth/verify-admin', throttleVerifyAdmin, (req, res) => {
   }
   const key = `${clientKeyForGuards(req)}|${audience}`;
   const pwd = req.body && typeof req.body.password === 'string' ? req.body.password.trim() : '';
-  const bearer = getBearerToken(req);
+  const bearer = getBearerTokenStrict(req);
   const candidate = pwd || bearer || '';
   if (!candidate || !candidateMatchesAudience(candidate, audience)) {
     verifyAdminGuard.recordFailure(key);
     return res.status(401).json({ error: 'Invalid admin token', needsAdminAuth: true });
   }
   verifyAdminGuard.recordSuccess(key);
+  const uname = req.body && typeof req.body.username === 'string' ? req.body.username : '';
+  insertAdminLoginAudit(req, uname);
   return res.json({ ok: true, audience });
 });
 
@@ -784,8 +840,8 @@ async function readBackendLogTail(logAbsPath, maxBytes) {
   const fh = await fs.promises.open(logAbsPath, 'r');
   try {
     const buf = Buffer.alloc(readLen);
-    await fh.read(buf, 0, readLen, start);
-    let text = buf.toString('utf8');
+    const { bytesRead } = await fh.read(buf, 0, readLen, start);
+    let text = buf.subarray(0, bytesRead).toString('utf8');
     if (start > 0) {
       const nl = text.indexOf('\n');
       if (nl !== -1) {
@@ -830,7 +886,6 @@ app.get('/api/admin/logs', requireMainAdmin, async (req, res) => {
       return res.json({
         ok: true,
         configured: true,
-        path: logFile,
         empty: true,
         message: 'Log file does not exist yet (nothing written after deploy, or logging just started).',
         text: '',
@@ -841,7 +896,6 @@ app.get('/api/admin/logs', requireMainAdmin, async (req, res) => {
     return res.json({
       ok: true,
       configured: true,
-      path: logFile,
       fileSizeBytes: size,
       truncated,
       maxBytes,

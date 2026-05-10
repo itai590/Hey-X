@@ -33,6 +33,12 @@ describe('SQLite schema', () => {
     const names = cols.map((c) => c.name).sort();
     expect(new Set(names)).toEqual(new Set(['id', 'last_update']));
   });
+
+  test('admin_login_audit table columns', () => {
+    const cols = db.prepare(`PRAGMA table_info(admin_login_audit)`).all();
+    const names = cols.map((c) => c.name).sort();
+    expect(new Set(names)).toEqual(new Set(['id', 'ip', 'logged_at', 'username', 'xff_first']));
+  });
 });
 
 describe('Auth API', () => {
@@ -50,6 +56,32 @@ describe('Auth API', () => {
       .send({ password: 'jest-admin-token' });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
+  });
+
+  test('POST /api/auth/verify-admin records optional username in admin_login_audit', async () => {
+    db.prepare('DELETE FROM admin_login_audit').run();
+    const res = await request(app)
+      .post('/api/auth/verify-admin')
+      .send({ password: 'jest-admin-token', username: 'operator-one' });
+    expect(res.status).toBe(200);
+    const row = db.prepare('SELECT username FROM admin_login_audit ORDER BY id DESC LIMIT 1').get();
+    expect(row.username).toBe('operator-one');
+  });
+
+  test('mutating API rejects bare Authorization without Bearer prefix', async () => {
+    const res = await request(app)
+      .put('/api/messages/bare-test')
+      .set({ Authorization: 'jest-admin-token' })
+      .send({ text: 'x' });
+    expect(res.status).toBe(401);
+  });
+
+  test('GET /api/openapi.yaml accepts bare token (docs/Swagger compatibility)', async () => {
+    const res = await request(app)
+      .get('/api/openapi.yaml')
+      .set({ Authorization: 'jest-admin-token' });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type'] || '').toMatch(/yaml/);
   });
 });
 
@@ -244,6 +276,21 @@ describe('OpenAPI', () => {
   });
 });
 
+describe('Admin logs API', () => {
+  test('GET /api/admin/logs requires auth', async () => {
+    const res = await request(app).get('/api/admin/logs');
+    expect(res.status).toBe(401);
+  });
+
+  test('GET /api/admin/logs with auth omits filesystem path', async () => {
+    const res = await request(app).get('/api/admin/logs').set(auth);
+    expect(res.status).toBe(200);
+    expect(res.body.path).toBeUndefined();
+    expect(res.body.ok).toBe(true);
+    expect(res.body.configured).toBe(false);
+  });
+});
+
 describe('Training WAV review (HTTP)', () => {
   test('GET /api/training/listen serves HTML', async () => {
     const res = await request(app).get('/api/training/listen');
@@ -271,6 +318,15 @@ describe('Training WAV review (HTTP)', () => {
     expect(res.body.custom).toHaveProperty('not_bark');
     expect(Array.isArray(res.body.inbox)).toBe(true);
     expect(Array.isArray(res.body.micTemp)).toBe(true);
+  });
+
+  test('GET /api/training/audio-catalog pagination beyond total returns empty inbox slice', async () => {
+    const res = await request(app)
+      .get('/api/training/audio-catalog?limit=10&offset=99999')
+      .set(auth);
+    expect(res.status).toBe(200);
+    expect(res.body.inbox).toEqual([]);
+    expect(typeof res.body.inboxTotal).toBe('number');
   });
 
   test('GET /api/training/mic-temp rejects invalid filename', async () => {

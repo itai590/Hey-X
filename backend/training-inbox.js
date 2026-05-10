@@ -81,9 +81,27 @@ function clipPaths(inboxDir, clipId) {
   };
 }
 
+/** Sort key: sidecar capturedAt (logical capture order), else JSON file mtime. */
+function inboxJsonSortMs(inboxDir, name) {
+  const jsonPath = path.join(inboxDir, name);
+  try {
+    const raw = fs.readFileSync(jsonPath, 'utf8');
+    const o = JSON.parse(raw);
+    const c = o && o.capturedAt;
+    if (typeof c === 'string') {
+      const t = Date.parse(c);
+      if (Number.isFinite(t)) return t;
+    }
+  } catch (_) { /* ignore */ }
+  try {
+    return fs.statSync(jsonPath).mtimeMs;
+  } catch (_) {
+    return 0;
+  }
+}
+
 /**
- * List inbox clips with optional pagination. Uses file mtime for sorting to avoid reading every
- * JSON file upfront — only the requested page slice reads metadata from disk.
+ * List inbox clips with optional pagination. Sorts by clip `capturedAt` when present (else JSON mtime).
  * @param {string} backendRoot
  * @param {{ limit?: number|null, offset?: number }} [opts]
  * @returns {{ total: number, rows: object[] }}
@@ -92,17 +110,16 @@ function listInbox(backendRoot, { limit = null, offset = 0 } = {}) {
   const inboxDir = getInboxDir(backendRoot);
   if (!fs.existsSync(inboxDir)) return { total: 0, rows: [] };
 
-  // Phase 1: filenames + mtime only (no JSON reads)
+  // Phase 1: filenames + capture-time sort key (one JSON read per clip)
   const names = fs.readdirSync(inboxDir).filter((f) => f.endsWith('.json'));
-  const withMtime = names.map((name) => {
-    let mtime = 0;
-    try { mtime = fs.statSync(path.join(inboxDir, name)).mtimeMs; } catch (_) { /* ignore */ }
-    return { name, mtime };
-  });
-  withMtime.sort((a, b) => b.mtime - a.mtime);
+  const withSort = names.map((name) => ({
+    name,
+    sortMs: inboxJsonSortMs(inboxDir, name),
+  }));
+  withSort.sort((a, b) => b.sortMs - a.sortMs);
 
-  const total = withMtime.length;
-  const page = limit != null ? withMtime.slice(offset, offset + limit) : withMtime.slice(offset);
+  const total = withSort.length;
+  const page = limit != null ? withSort.slice(offset, offset + limit) : withSort.slice(offset);
 
   // Phase 2: read JSON + WAV stat only for the page slice
   const rows = [];
