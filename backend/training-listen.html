@@ -492,7 +492,7 @@
             <input id="training-modal-username" name="username" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" />
           </div>
           <div class="training-login-field">
-            <label for="training-modal-password">HEY_ADMIN_TOKEN</label>
+            <label for="training-modal-password">Password</label>
             <input id="training-modal-password" name="password" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
           </div>
           <div class="training-login-error" id="training-login-error" role="alert"></div>
@@ -1228,6 +1228,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         pager.nextBtn.disabled = remaining <= 0;
         pager.pageInfo.textContent = 'Page ' + inboxCurrentPage + ' / ' + inboxTotalPages + (remaining <= 0 ? ' (last page)' : '');
         buildPageSelectOptions(pager);
+        if (pager.pageSelect) pager.pageSelect.disabled = false;
       });
     }
 

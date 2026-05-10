@@ -112,7 +112,7 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
             fullWidth
             variant="outlined"
             type="text"
-            label="Display name (optional)"
+            label="Username"
             name="hey-display-name"
             autoComplete="username"
             value={username}
