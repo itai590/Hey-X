@@ -11,11 +11,12 @@
     }
 
     # WAV streams: disable buffering/gzip only here (JSON /api keeps server gzip).
+    # Regex locations cannot use proxy_pass with a URI path (/api/…); pass full $uri to backend.
     location ~* ^/api/training/.+/audio$ {
         gzip off;
         proxy_buffering off;
         proxy_request_buffering off;
-        proxy_pass http://backend:5100/api/;
+        proxy_pass http://backend:5100;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

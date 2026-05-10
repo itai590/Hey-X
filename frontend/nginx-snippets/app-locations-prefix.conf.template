@@ -18,11 +18,13 @@
         return 404;
     }
 
+    # Regex locations cannot use proxy_pass with a URI path; strip deploy basename then proxy.
     location ~* ^%%PUBLIC_URL%%/api/training/.+/audio$ {
         gzip off;
         proxy_buffering off;
         proxy_request_buffering off;
-        proxy_pass http://backend:5100/api/;
+        rewrite ^%%PUBLIC_URL%%(.*)$ $1 break;
+        proxy_pass http://backend:5100;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
