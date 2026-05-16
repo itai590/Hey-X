@@ -660,7 +660,7 @@ async function processDetectedWav(wavPath, rms) {
       console.log(`${classifyLogLine}${idPart}`);
 
       if (result.is_bark && ++detections >= config.DETECTION_THRESHOLD) {
-        hey.send();
+        hey.send(clipId);
       }
     } else {
       const aiOffLogLine = `rms=${rms.toFixed(4)} (AI off, skipping classification)`;
@@ -676,7 +676,7 @@ async function processDetectedWav(wavPath, rms) {
       const idPart = clipId ? ` clip_id=${clipId}` : '';
       console.log(`${aiOffLogLine}${idPart}`);
       if (++detections >= config.DETECTION_THRESHOLD) {
-        hey.send();
+        hey.send(clipId);
       }
     }
   } catch (err) {

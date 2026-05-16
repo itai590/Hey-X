@@ -23,9 +23,17 @@ db.exec(`
     id TEXT PRIMARY KEY,
     text TEXT,
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME
+    update_time DATETIME,
+    clip_id TEXT
   );
 `);
+
+// Migration: add clip_id to existing databases that predate this column
+try {
+  db.exec(`ALTER TABLE messages ADD COLUMN clip_id TEXT`);
+} catch (_) {
+  /* column already exists — ignore */
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS presence (

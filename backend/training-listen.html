@@ -84,6 +84,27 @@
       transition: opacity 0.2s;
     }
     #scroll-to-top:hover { opacity: 0.85; }
+    #scroll-to-bottom {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 1.5rem;
+      z-index: 999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 2.6rem;
+      height: 2.6rem;
+      font-size: 1.2rem;
+      line-height: 1;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      transition: opacity 0.2s;
+    }
+    #scroll-to-bottom:hover { opacity: 0.85; }
     button.load-more-btn { margin: 0.5rem 0; display: block; }
     .pagination-controls {
       margin: 0.4rem 0 0.6rem;
@@ -97,14 +118,29 @@
       font-size: 0.82rem;
       white-space: nowrap;
     }
-    .pagination-controls .page-select {
+    .page-btn {
       background: var(--bg-elev);
       color: var(--text);
       border: 1px solid var(--border-strong);
-      border-radius: 10px;
-      padding: 0.32rem 0.45rem;
+      border-radius: 6px;
+      padding: 0.22rem 0.55rem;
       font-size: 0.8rem;
-      max-width: 4.8rem;
+      min-width: 2rem;
+      cursor: pointer;
+      line-height: 1.4;
+    }
+    .page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .page-btn.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+      font-weight: 700;
+    }
+    .page-ellipsis {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      padding: 0 0.15rem;
+      user-select: none;
     }
     .training-toolbar {
       margin-bottom: 1rem;
@@ -528,6 +564,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
   <div id="panel-not-barks" class="catalog-panel"></div>
 
   <button type="button" id="scroll-to-top" title="Scroll to top" aria-label="Scroll to top">↑</button>
+  <button type="button" id="scroll-to-bottom" title="Scroll to bottom" aria-label="Scroll to bottom">↓</button>
 
   <script>
     /**
@@ -1080,6 +1117,18 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       btn.onclick = function () { window.scrollTo({ top: 0, behavior: 'smooth' }); };
     })();
 
+    (function initScrollToBottom() {
+      var btn = document.getElementById('scroll-to-bottom');
+      if (!btn) return;
+      function update() {
+        var atBottom = window.scrollY + window.innerHeight >= document.body.scrollHeight - 100;
+        btn.style.display = atBottom ? 'none' : 'flex';
+      }
+      window.addEventListener('scroll', update, { passive: true });
+      update();
+      btn.onclick = function () { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); };
+    })();
+
     var catalogLoadingInFlight = false;
     var inboxPageLoadInFlight = false;
 
@@ -1103,6 +1152,26 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     var notBarksPagerTop = null;
     var notBarksPagerBottom = null;
 
+    // Returns a sorted, deduplicated array of page numbers to show, with null for ellipsis gaps.
+    function windowedPages(cur, total) {
+      if (total <= 1) return [];
+      var show = new Set();
+      // First 3
+      for (var i = 1; i <= Math.min(3, total); i++) show.add(i);
+      // Window around current
+      for (var j = Math.max(1, cur - 1); j <= Math.min(total, cur + 1); j++) show.add(j);
+      // Last 3
+      for (var k = Math.max(1, total - 2); k <= total; k++) show.add(k);
+      var sorted = Array.from(show).sort(function (a, b) { return a - b; });
+      // Insert null markers for gaps
+      var result = [];
+      for (var m = 0; m < sorted.length; m++) {
+        if (m > 0 && sorted[m] - sorted[m - 1] > 1) result.push(null);
+        result.push(sorted[m]);
+      }
+      return result;
+    }
+
     function createSimplePager(getPage, setPage, getTotal, renderFn) {
       var wrapper = document.createElement('div');
       wrapper.className = 'pagination-controls';
@@ -1112,12 +1181,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       prev.className = 'load-more-btn';
       prev.textContent = 'Prev';
 
-      var pageInfo = document.createElement('span');
-      pageInfo.className = 'pagination-page';
-
-      var select = document.createElement('select');
-      select.className = 'page-select';
-      select.title = 'Go to page';
+      var btnContainer = document.createElement('span');
 
       var next = document.createElement('button');
       next.type = 'button';
@@ -1129,27 +1193,30 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         var cur = getPage();
         prev.disabled = cur <= 1;
         next.disabled = cur >= total;
-        pageInfo.textContent = 'Page ' + cur + ' / ' + total;
-        select.textContent = '';
-        if (total <= 1) { select.style.display = 'none'; } else {
-          select.style.display = '';
-          for (var p = 1; p <= total; p++) {
-            var opt = document.createElement('option');
-            opt.value = String(p);
-            opt.textContent = String(p);
-            select.appendChild(opt);
+        btnContainer.innerHTML = '';
+        windowedPages(cur, total).forEach(function (p) {
+          if (p === null) {
+            var ell = document.createElement('span');
+            ell.className = 'page-ellipsis';
+            ell.textContent = '…';
+            btnContainer.appendChild(ell);
+          } else {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'page-btn' + (p === cur ? ' active' : '');
+            btn.textContent = String(p);
+            btn.disabled = p === cur;
+            btn.onclick = (function (pg) { return function () { setPage(pg); renderFn(); }; })(p);
+            btnContainer.appendChild(btn);
           }
-          select.value = String(cur);
-        }
+        });
       }
 
       prev.onclick = function () { if (getPage() > 1) { setPage(getPage() - 1); renderFn(); } };
       next.onclick = function () { if (getPage() < getTotal()) { setPage(getPage() + 1); renderFn(); } };
-      select.onchange = function () { var n = parseInt(select.value, 10); if (!isNaN(n)) { setPage(n); renderFn(); } };
 
       wrapper.appendChild(prev);
-      wrapper.appendChild(pageInfo);
-      wrapper.appendChild(select);
+      wrapper.appendChild(btnContainer);
       wrapper.appendChild(next);
 
       return { root: wrapper, update: update };
@@ -1204,21 +1271,26 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       return pages;
     }
 
-    function buildPageSelectOptions(pager) {
-      if (!pager || !pager.pageSelect) return;
-      pager.pageSelect.textContent = '';
-      if (inboxTotalPages <= 1) {
-        pager.pageSelect.style.display = 'none';
-        return;
-      }
-      pager.pageSelect.style.display = '';
-      for (var p = 1; p <= inboxTotalPages; p++) {
-        var opt = document.createElement('option');
-        opt.value = String(p);
-        opt.textContent = String(p);
-        pager.pageSelect.appendChild(opt);
-      }
-      pager.pageSelect.value = String(Math.max(1, Math.min(inboxCurrentPage, inboxTotalPages)));
+    function buildInboxPageButtons(pager) {
+      if (!pager || !pager.btnContainer) return;
+      pager.btnContainer.innerHTML = '';
+      var cur = Math.max(1, Math.min(inboxCurrentPage, inboxTotalPages));
+      windowedPages(cur, inboxTotalPages).forEach(function (p) {
+        if (p === null) {
+          var ell = document.createElement('span');
+          ell.className = 'page-ellipsis';
+          ell.textContent = '…';
+          pager.btnContainer.appendChild(ell);
+        } else {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'page-btn' + (p === cur ? ' active' : '');
+          btn.textContent = String(p);
+          btn.disabled = p === cur;
+          btn.onclick = (function (pg) { return function () { goToInboxPage(pg); }; })(p);
+          pager.btnContainer.appendChild(btn);
+        }
+      });
     }
 
     function setLoadMoreLoading(isLoading) {
@@ -1230,7 +1302,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         if (!pager || !pager.root) return;
         pager.prevBtn.disabled = true;
         pager.nextBtn.disabled = true;
-        if (pager.pageSelect) pager.pageSelect.disabled = true;
+        if (pager.btnContainer) pager.btnContainer.innerHTML = '';
       });
     }
 
@@ -1243,8 +1315,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         pager.prevBtn.disabled = inboxCurrentPage <= 1;
         pager.nextBtn.disabled = remaining <= 0;
         pager.pageInfo.textContent = 'Page ' + inboxCurrentPage + ' / ' + inboxTotalPages + (remaining <= 0 ? ' (last page)' : '');
-        buildPageSelectOptions(pager);
-        if (pager.pageSelect) pager.pageSelect.disabled = false;
+        buildInboxPageButtons(pager);
       });
     }
 
@@ -1269,9 +1340,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       pageInfo.className = 'pagination-page';
       pageInfo.textContent = 'Page 1 / 1';
 
-      var select = document.createElement('select');
-      select.className = 'page-select';
-      select.title = 'Go to page';
+      var btnContainer = document.createElement('span');
 
       var next = document.createElement('button');
       next.type = 'button';
@@ -1284,22 +1353,17 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       next.addEventListener('click', function () {
         goToInboxPage(inboxCurrentPage + 1);
       });
-      select.onchange = function () {
-        var n = parseInt(select.value, 10);
-        if (Number.isNaN(n)) return;
-        goToInboxPage(n);
-      };
 
       wrapper.appendChild(prev);
       wrapper.appendChild(pageInfo);
-      wrapper.appendChild(select);
+      wrapper.appendChild(btnContainer);
       wrapper.appendChild(next);
 
       return {
         root: wrapper,
         prevBtn: prev,
         pageInfo: pageInfo,
-        pageSelect: select,
+        btnContainer: btnContainer,
         nextBtn: next,
       };
     }

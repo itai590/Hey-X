@@ -15,6 +15,7 @@ import TerminalIcon from '@mui/icons-material/Terminal';
 import HeadphonesOutlinedIcon from '@mui/icons-material/HeadphonesOutlined';
 import ErrorBanner from './components/ErrorBanner';
 import BackendLogsDialog from './components/BackendLogsDialog';
+import BarkConfirmCard from './components/BarkConfirmCard';
 import useMessages from './hooks/useMessages';
 import useConfig from './hooks/useConfig';
 import { apiUrl, trainingListenPageUrl } from './apiBase';
@@ -59,7 +60,7 @@ const DOG_IMAGE_FALLBACK =
 const nearlyEquals = (a, b) => Math.abs(a - b) < 1e-6;
 
 export default function Home() {
-  const { messages, error, reload: reloadMessages } = useMessages();
+  const { messages, error, reload: reloadMessages, newBarkClips, dismissBarkClip } = useMessages();
   const { config, loading: configLoading, updateConfig, reload: reloadConfig } = useConfig();
   const { openAdminDialog, hasAdminSession } = useAdminAuth();
 
@@ -871,6 +872,28 @@ export default function Home() {
             boxSizing: 'border-box',
           }}
         >
+          {/* Date range of displayed barks */}
+          {sorted.length > 0 && (() => {
+            const oldest = sorted[sorted.length - 1];
+            const newest = sorted[0];
+            const start = formatBarkTimestamp(oldest.create_time);
+            const end = formatBarkTimestamp(newest.update_time || newest.create_time);
+            return (
+              <Typography
+                variant="caption"
+                sx={{
+                  display: 'block',
+                  mb: 1.25,
+                  color: 'rgba(245, 235, 224, 0.45)',
+                  fontSize: '0.75rem',
+                  letterSpacing: '0.02em',
+                }}
+              >
+                {start === end ? start : `${start} — ${end}`}
+              </Typography>
+            );
+          })()}
+
           {/* Bulk actions bar */}
           {selected.size > 0 && (
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, gap: 1 }}>
@@ -1021,6 +1044,31 @@ export default function Home() {
       )}
 
       <BackendLogsDialog open={logsOpen} onClose={() => setLogsOpen(false)} />
+
+      {/* Bark confirmation cards — fixed bottom-right stack, above RMS indicator */}
+      {newBarkClips.length > 0 && (
+        <Box
+          sx={{
+            position: 'fixed',
+            bottom: { xs: 80, sm: 24 },
+            right: { xs: 8, sm: 16 },
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1,
+            zIndex: 1400,
+            alignItems: 'flex-end',
+          }}
+        >
+          {newBarkClips.map(({ clipId, messageId }) => (
+            <BarkConfirmCard
+              key={clipId}
+              clipId={clipId}
+              messageId={messageId}
+              onDismiss={() => dismissBarkClip(clipId)}
+            />
+          ))}
+        </Box>
+      )}
 
       <Snackbar
         open={snack.open}
