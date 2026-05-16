@@ -18,6 +18,8 @@ vi.mock('./hooks/useMessages', () => ({
     ],
     error: null,
     reload: vi.fn(),
+    newBarkClips: [],
+    dismissBarkClip: vi.fn(),
   }),
 }));
 

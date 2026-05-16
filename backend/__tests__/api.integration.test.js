@@ -25,7 +25,7 @@ describe('SQLite schema', () => {
   test('messages table columns', () => {
     const cols = db.prepare(`PRAGMA table_info(messages)`).all();
     const names = cols.map((c) => c.name).sort();
-    expect(new Set(names)).toEqual(new Set(['create_time', 'id', 'text', 'update_time']));
+    expect(new Set(names)).toEqual(new Set(['clip_id', 'create_time', 'id', 'text', 'update_time']));
   });
 
   test('presence table columns', () => {

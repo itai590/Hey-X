@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Box, IconButton, Typography, CircularProgress } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlined';
 import BlockIcon from '@mui/icons-material/Block';
 import { apiUrl } from '../apiBase';
 import { apiFetch } from '../apiClient';
@@ -16,7 +16,7 @@ const AUTO_DISMISS_MS = 30_000;
  *
  * @param {{ clipId: string, messageId: string, onDismiss: () => void }} props
  */
-export default function BarkConfirmCard({ clipId, messageId, onDismiss }) {
+export default function BarkConfirmCard({ clipId, onDismiss }) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [status, setStatus] = useState('idle'); // idle | loading | done | error
   const [errorMsg, setErrorMsg] = useState('');
