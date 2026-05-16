@@ -872,28 +872,6 @@ export default function Home() {
             boxSizing: 'border-box',
           }}
         >
-          {/* Date range of displayed barks */}
-          {sorted.length > 0 && (() => {
-            const oldest = sorted[sorted.length - 1];
-            const newest = sorted[0];
-            const start = formatBarkTimestamp(oldest.create_time);
-            const end = formatBarkTimestamp(newest.update_time || newest.create_time);
-            return (
-              <Typography
-                variant="caption"
-                sx={{
-                  display: 'block',
-                  mb: 1.25,
-                  color: 'rgba(245, 235, 224, 0.45)',
-                  fontSize: '0.75rem',
-                  letterSpacing: '0.02em',
-                }}
-              >
-                {start === end ? start : `${start} — ${end}`}
-              </Typography>
-            );
-          })()}
-
           {/* Bulk actions bar */}
           {selected.size > 0 && (
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, gap: 1 }}>
@@ -1036,6 +1014,16 @@ export default function Home() {
                   >
                     {msg.text}
                   </Typography>
+                  {msg.clip_id && (
+                    // eslint-disable-next-line jsx-a11y/media-has-caption
+                    <audio
+                      controls
+                      preload="none"
+                      src={apiUrl(`/training/inbox/${msg.clip_id}/audio`)}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ width: '100%', maxWidth: 340, height: 36, marginTop: 8, display: 'block', marginLeft: 'auto', marginRight: 'auto' }}
+                    />
+                  )}
                 </Box>
               </li>
             ))}

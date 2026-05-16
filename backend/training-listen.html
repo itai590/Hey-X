@@ -1314,7 +1314,6 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       pages.forEach(function (pager) {
         pager.prevBtn.disabled = inboxCurrentPage <= 1;
         pager.nextBtn.disabled = remaining <= 0;
-        pager.pageInfo.textContent = 'Page ' + inboxCurrentPage + ' / ' + inboxTotalPages + (remaining <= 0 ? ' (last page)' : '');
         buildInboxPageButtons(pager);
       });
     }
@@ -1336,10 +1335,6 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       prev.className = 'load-more-btn';
       prev.textContent = 'Prev';
 
-      var pageInfo = document.createElement('span');
-      pageInfo.className = 'pagination-page';
-      pageInfo.textContent = 'Page 1 / 1';
-
       var btnContainer = document.createElement('span');
 
       var next = document.createElement('button');
@@ -1355,14 +1350,12 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       });
 
       wrapper.appendChild(prev);
-      wrapper.appendChild(pageInfo);
       wrapper.appendChild(btnContainer);
       wrapper.appendChild(next);
 
       return {
         root: wrapper,
         prevBtn: prev,
-        pageInfo: pageInfo,
         btnContainer: btnContainer,
         nextBtn: next,
       };
