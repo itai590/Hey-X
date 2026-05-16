@@ -5,6 +5,7 @@
   "main": "",
   "scripts": {
     "test": "jest --runInBand --silent",
+    "test:python": "PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_*.py' -v",
     "start": "node server.js",
     "health-watch": "node docker-health-watch.js",
     "train-head": "python3 train_custom_head.py",

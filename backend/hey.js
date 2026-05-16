@@ -34,18 +34,19 @@ const startOrRestartTimer = () => {
   context.timer = setTimeout(resetContext, aggrTime * 1000);
 };
 
-const sendNotification = () => {
+const sendNotification = (clipId) => {
   if (context.id) {
     // Already aggregating: append new bark
     context.text += " " + BARK_TEXT;
     logTime('Appended bark');
 
+    // Only fill clip_id if none was stored for this aggregation window yet
     const updateStmt = db.prepare(`
       UPDATE messages
-      SET text = ?, update_time = ?
+      SET text = ?, update_time = ?, clip_id = COALESCE(clip_id, ?)
       WHERE id = ?
     `);
-    updateStmt.run(context.text, new Date().toISOString(), context.id);
+    updateStmt.run(context.text, new Date().toISOString(), clipId || null, context.id);
 
   } else {
     // New aggregation window
@@ -54,11 +55,11 @@ const sendNotification = () => {
     context.id = randomUUID();
 
     const insertStmt = db.prepare(`
-      INSERT INTO messages (id, text, create_time, update_time)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO messages (id, text, create_time, update_time, clip_id)
+      VALUES (?, ?, ?, ?, ?)
     `);
     const nowISO = new Date().toISOString();
-    insertStmt.run(context.id, context.text, nowISO, nowISO);
+    insertStmt.run(context.id, context.text, nowISO, nowISO, clipId || null);
   }
 
   // Always start or restart the timer

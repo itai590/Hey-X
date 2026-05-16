@@ -51,51 +51,235 @@
       color: #f0e6dc;
     }
     section { margin: 1.25rem 0; padding-top: 1rem; border-top: 1px solid var(--border); }
-    details.catalog-section {
+    .catalog-section {
       margin: 1.25rem 0;
       padding-top: 1rem;
       border-top: 1px solid var(--border);
     }
-    details.catalog-section > summary.section-summary {
+    .section-summary {
       font-size: 1.05rem;
       font-weight: 600;
-      cursor: pointer;
-      list-style: none;
       margin: 0 0 0.75rem;
-      user-select: none;
       color: var(--text);
     }
-    details.catalog-section > summary.section-summary::-webkit-details-marker { display: none; }
-    details.catalog-section > summary.section-summary::before {
-      content: '▾ ';
-      display: inline-block;
-      width: 1.1em;
-      color: var(--accent);
-      transition: transform 0.15s ease;
-      transform: rotate(0deg);
+    .catalog-section .section-body { padding-left: 0.15rem; }
+    #scroll-to-top {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      z-index: 999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 2.6rem;
+      height: 2.6rem;
+      font-size: 1.2rem;
+      line-height: 1;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      transition: opacity 0.2s;
     }
-    details.catalog-section:not([open]) > summary.section-summary::before {
-      transform: rotate(-90deg);
+    #scroll-to-top:hover { opacity: 0.85; }
+    #scroll-to-bottom {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 1.5rem;
+      z-index: 999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 2.6rem;
+      height: 2.6rem;
+      font-size: 1.2rem;
+      line-height: 1;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      transition: opacity 0.2s;
     }
-    details.catalog-section .section-body { padding-left: 0.15rem; }
-    .token-row { margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
-    .token-row label { font-weight: 600; color: var(--text); }
-    #token {
+    #scroll-to-bottom:hover { opacity: 0.85; }
+    button.load-more-btn { margin: 0.5rem 0; display: block; }
+    .pagination-controls {
+      margin: 0.4rem 0 0.6rem;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+    .pagination-controls .pagination-page {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+    .page-btn {
+      background: var(--bg-elev);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      padding: 0.22rem 0.55rem;
+      font-size: 0.8rem;
+      min-width: 2rem;
+      cursor: pointer;
+      line-height: 1.4;
+    }
+    .page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .page-btn.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+      font-weight: 700;
+    }
+    .page-ellipsis {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      padding: 0 0.15rem;
+      user-select: none;
+    }
+    .training-toolbar {
+      margin-bottom: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      align-items: center;
+    }
+    .training-toolbar .training-toolbar-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
       flex: 1;
       min-width: 12rem;
-      max-width: 28rem;
-      padding: 0.45rem 0.65rem;
-      border-radius: 8px;
+    }
+    .lock-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.65rem;
+      height: 2.65rem;
+      padding: 0;
+      border-radius: 12px;
+      border: 1px solid var(--border-strong);
+      background: var(--bg-elev);
+      color: var(--text);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .lock-btn:hover:not(:disabled) {
+      border-color: rgba(220, 198, 168, 0.45);
+    }
+    .lock-btn:active:not(:disabled) { transform: scale(0.97); }
+    .lock-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .lock-btn svg { width: 1.35rem; height: 1.35rem; }
+    .lock-btn.unlocked svg { color: #a5d6a7; }
+    /* Single SVG: show locked or unlocked group only (`hidden` on SVG can be flaky in WebKit). */
+    .lock-btn .lock-icon-hidden {
+      display: none !important;
+    }
+    .training-auth-caption {
+      font-size: 0.84rem;
+      color: var(--text-muted);
+      min-width: 8rem;
+      flex: 1 1 10rem;
+    }
+    .training-auth-caption.unlocked span { color: #a5d6a7; font-weight: 600; }
+
+    /* Overlay modal (not <dialog>): Bitwarden and other extensions often fail autofilling native dialog top-layer forms. */
+    .training-login-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      box-sizing: border-box;
+    }
+    .training-login-overlay.training-login-overlay-open {
+      display: flex;
+    }
+    .training-login-overlay-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(4px);
+      border: none;
+      padding: 0;
+      margin: 0;
+      cursor: default;
+    }
+    .training-login-dialog {
+      position: relative;
+      z-index: 1;
+      border-radius: 16px;
+      padding: 0;
+      max-width: calc(100vw - 2rem);
+      width: min(22rem, 100%);
+      background: var(--bg-card);
+      color: var(--text);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-strong);
+      margin: 0;
+      outline: none;
+    }
+    .training-login-inner { padding: 1.35rem 1.35rem 1.1rem; }
+    .training-login-inner h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.08rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .training-login-inner .training-login-hint {
+      margin: 0 0 1rem;
+      font-size: 0.86rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+    .training-login-field {
+      margin-bottom: 0.85rem;
+    }
+    .training-login-field label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: rgba(245, 235, 224, 0.85);
+      margin-bottom: 0.35rem;
+    }
+    .training-login-field input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.5rem 0.65rem;
+      border-radius: 10px;
       border: 1px solid var(--border-strong);
       background: var(--field-fill);
       color: var(--text);
       font-size: 0.95rem;
     }
-    #token::placeholder { color: var(--text-muted); }
-    #token:focus {
+    .training-login-field input:focus {
       outline: none;
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+    .training-login-error {
+      min-height: 1.25rem;
+      margin: -0.2rem 0 0.5rem;
+      font-size: 0.82rem;
+      color: #ff8a80;
+    }
+    .training-login-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      margin-top: 0.85rem;
     }
     .clip {
       position: relative;
@@ -135,6 +319,35 @@
       color: var(--text-muted);
       margin-bottom: 0.4rem;
       word-break: break-all;
+    }
+    .log-line {
+      margin-top: 0.35rem;
+      font-size: 0.76rem;
+      font-family: ui-monospace, monospace;
+      color: rgba(245, 235, 224, 0.86);
+      white-space: pre-wrap;
+      word-break: break-word;
+      opacity: 0.92;
+    }
+    /* Fully hidden when collapsed — line-clamp breaks with pre-wrap on desktop WebKit/Firefox */
+    .log-line.is-collapsed {
+      display: none;
+    }
+    .log-toggle {
+      margin-top: 0.4rem;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: #90caf9;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-align: left;
+      cursor: pointer;
+    }
+    .log-toggle:hover {
+      text-decoration: underline;
+      background: transparent;
+      border-color: transparent;
     }
     .clip strong { color: #f5ebe0; font-weight: 700; }
     audio {
@@ -226,24 +439,106 @@
     }
     .ok { color: #a5d6a7; font-size: 0.9rem; }
     #status, #ids-status { color: var(--text-muted); font-size: 0.92rem; }
+
+    /* Tabs */
+    .catalog-tabs {
+      display: flex;
+      gap: 0.25rem;
+      margin: 1.1rem 0 0;
+      border-bottom: 1px solid var(--border-strong);
+    }
+    .catalog-tab {
+      padding: 0.45rem 0.9rem;
+      border: 1px solid transparent;
+      border-bottom: none;
+      border-radius: 10px 10px 0 0;
+      background: none;
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: color 0.12s, background 0.12s;
+      position: relative;
+      bottom: -1px;
+    }
+    .catalog-tab:hover:not(.catalog-tab-active) {
+      color: var(--text);
+      background: var(--bg-elev);
+    }
+    .catalog-tab.catalog-tab-active {
+      color: var(--text);
+      background: var(--bg);
+      border-color: var(--border-strong);
+    }
+    .catalog-tab .tab-count {
+      font-size: 0.76rem;
+      font-weight: 500;
+      opacity: 0.7;
+      margin-left: 0.3rem;
+    }
+    .catalog-panel { display: none; padding-top: 0.75rem; }
+    .catalog-panel.catalog-panel-active { display: block; }
   </style>
 </head>
 <body>
   <h1 id="training-listen-title">Hey — WAV review</h1>
-  <p class="hint">
-    <strong>Timestamps</strong> below use <code>__DISPLAY_TIME_ZONE_HTML__</code>.
+  <p class="hint">  
     Press <strong>play</strong> on a row to load that clip (loads one at a time).
-    Use <strong>Refresh</strong> to re-fetch training inbox, mic temp, and custom clip lists without reloading the page.
+    Use <strong>Load clips</strong> to re-fetch training inbox, mic temp, and custom clip lists without reloading the page.
     <strong>Train</strong> runs <code>POST /api/custom-head/train</code> on the server (rebuilds the head from <code>custom_clips</code>; can take a while).
     <strong>Clear training inbox</strong> deletes every WAV and JSON under <code>data/training_inbox</code> (not custom clips); you will be asked to confirm.
   </p>
-  <div class="token-row">
-    <label for="token">Admin token</label>
-    <input id="token" type="password" autocomplete="off" placeholder="Bearer HEY_ADMIN_TOKEN" />
-    <button type="button" id="load">Load all clips</button>
-    <button type="button" id="refresh-catalog">Refresh</button>
-    <button type="button" id="train-custom-head" class="btn-accent" title="POST /api/custom-head/train — retrains from custom_clips">Train</button>
-    <button type="button" id="clear-inbox" class="btn-danger" title="Deletes all files in data/training_inbox">Clear training inbox</button>
+  <div class="training-toolbar" id="training-toolbar">
+    <button type="button" class="lock-btn" id="training-lock-btn" aria-label="Admin sign-in" title="Sign in with HEY_ADMIN_TOKEN or sign out">
+      <svg id="training-lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <g id="training-icon-locked">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </g>
+        <g id="training-icon-unlocked" class="lock-icon-hidden" stroke-linecap="round">
+          <rect x="4" y="11" width="16" height="10" rx="2" ry="2" />
+          <path d="M12 11V7a4 4 0 0 1 7.5-2" />
+        </g>
+      </svg>
+    </button>
+    <span class="training-auth-caption" id="training-auth-caption"></span>
+    <div class="training-toolbar-actions">
+      <button type="button" id="load">Load clips</button>
+      <button type="button" id="train-custom-head" class="btn-accent" title="POST /api/custom-head/train — retrains from custom_clips">Train</button>
+      <button type="button" id="clear-inbox" class="btn-danger" title="Deletes all files in data/training_inbox">Clear training inbox</button>
+    </div>
+  </div>
+
+  <div id="training-login-overlay" class="training-login-overlay" aria-hidden="true">
+    <div class="training-login-overlay-backdrop" id="training-login-backdrop" aria-hidden="true"></div>
+    <div
+      id="training-login-dialog"
+      class="training-login-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="training-login-title"
+      tabindex="-1"
+    >
+      <div class="training-login-inner">
+        <h2 id="training-login-title">Admin sign-in</h2>
+        <!-- Real <form> + standard name/autocomplete so password managers (e.g. Bitwarden) can detect and fill fields. -->
+        <form id="training-login-form" method="post" action="#" autocomplete="on" novalidate>
+          <div class="training-login-field">
+            <label for="training-modal-username">Username</label>
+            <input id="training-modal-username" name="username" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" />
+          </div>
+          <div class="training-login-field">
+            <label for="training-modal-password">Password</label>
+            <input id="training-modal-password" name="password" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+          </div>
+          <div class="training-login-error" id="training-login-error" role="alert"></div>
+          <div class="training-login-actions">
+            <button type="button" id="training-login-cancel">Cancel</button>
+            <button type="submit" class="btn-accent" id="training-login-submit">Save session</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 
   <section>
@@ -259,9 +554,279 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
   </section>
 
   <div id="status"></div>
-  <div id="out"></div>
+  <div class="catalog-tabs" id="catalog-tabs" style="display:none">
+    <button type="button" class="catalog-tab catalog-tab-active" data-panel="panel-inbox" id="tab-inbox">Inbox<span class="tab-count" id="tab-count-inbox"></span></button>
+    <button type="button" class="catalog-tab" data-panel="panel-barks" id="tab-barks">Barks<span class="tab-count" id="tab-count-barks"></span></button>
+    <button type="button" class="catalog-tab" data-panel="panel-not-barks" id="tab-not-barks">Not barks<span class="tab-count" id="tab-count-not-barks"></span></button>
+  </div>
+  <div id="panel-inbox" class="catalog-panel catalog-panel-active"></div>
+  <div id="panel-barks" class="catalog-panel"></div>
+  <div id="panel-not-barks" class="catalog-panel"></div>
+
+  <button type="button" id="scroll-to-top" title="Scroll to top" aria-label="Scroll to top">↑</button>
+  <button type="button" id="scroll-to-bottom" title="Scroll to bottom" aria-label="Scroll to bottom">↓</button>
 
   <script>
+    /**
+     * SPA often served under PUBLIC_URL basename (e.g. /hey-x-sheldon). This page URL is …/basename/api/training/listen —
+     * raw fetch('/api/...') wrongly hits the origin root and returns HTTP 404. Mirror frontend `BASE_URL`: prefix `/api`.
+     */
+    function heyMountPrefix() {
+      var p = String(window.location.pathname || '');
+      var m = p.match(/^(.*)\/api\/training\/listen\/?$/i);
+      if (!m) return '';
+      return String(m[1] || '').replace(/\/+$/, '');
+    }
+
+    /**
+     * Absolute path under this origin for `fetch`. Pass **`/api/...` only**. Mount prefix (`PUBLIC_URL`) is applied once inside `wavBlobUrl` / direct `fetch(heyApi(...))`; do not bake `heyApi()` into URLs passed into `wavBlobUrl` or the basename is doubled (`/hey-x/hey-x/api/...`).
+     * If `absPathFromRoot` already begins with `heyMountPrefix()`, it is returned unchanged.
+     */
+    function heyApi(absPathFromRoot) {
+      var pre = heyMountPrefix();
+      var q = String(absPathFromRoot || '');
+      if (q.charAt(0) !== '/') q = '/' + q;
+      if (pre && (q === pre || q.indexOf(pre + '/') === 0)) return q;
+      return pre + q;
+    }
+
+    /** Same key as the main SPA (`frontend/src/authStorage.js`) — one `HEY_ADMIN_TOKEN` per tab. */
+    var HEY_ADMIN_SESSION_STORAGE_KEY = 'hey-admin-token';
+    /** null unknown, true requires Bearer, false server has no HEY_ADMIN_TOKEN */
+    var serverAdminPasswordRequired = null;
+    /** busy flag for catalog train/clear disabling */
+    var catalogActionsBusy = false;
+
+    function getAdminSessionToken() {
+      try {
+        var t = sessionStorage.getItem(HEY_ADMIN_SESSION_STORAGE_KEY);
+        return t && typeof t === 'string' ? t.trim() : '';
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function setAdminSessionToken(token) {
+      try {
+        if (token && String(token).trim()) sessionStorage.setItem(HEY_ADMIN_SESSION_STORAGE_KEY, String(token).trim());
+        else sessionStorage.removeItem(HEY_ADMIN_SESSION_STORAGE_KEY);
+      } catch (e) { /* private mode */ }
+    }
+
+    /** Safe status line for errors (avoid innerHTML with server-controlled strings). */
+    function setStatusError(el, message) {
+      if (!el) return;
+      el.textContent = '';
+      var span = document.createElement('span');
+      span.className = 'err';
+      span.textContent = String(message != null ? message : '');
+      el.appendChild(span);
+    }
+
+    function trainingActionsAllowed() {
+      if (serverAdminPasswordRequired === false) return true;
+      if (serverAdminPasswordRequired === true && getAdminSessionToken()) return true;
+      return false;
+    }
+
+    function applyToolbarButtonState() {
+      var blocked = catalogActionsBusy || !trainingActionsAllowed();
+      ['load', 'train-custom-head', 'clear-inbox'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.disabled = !!blocked;
+      });
+      var hear = document.getElementById('hear-ids');
+      if (hear) hear.disabled = !!blocked;
+    }
+
+    function refreshTrainingAuthChrome() {
+      var lockBtn = document.getElementById('training-lock-btn');
+      var cap = document.getElementById('training-auth-caption');
+      var gLocked = document.getElementById('training-icon-locked');
+      var gOpen = document.getElementById('training-icon-unlocked');
+      if (!lockBtn || !cap) return;
+
+      function iconLocked(showClosed) {
+        if (gLocked) gLocked.classList.toggle('lock-icon-hidden', !showClosed);
+        if (gOpen) gOpen.classList.toggle('lock-icon-hidden', showClosed);
+      }
+      if (serverAdminPasswordRequired === null) {
+        lockBtn.disabled = true;
+        cap.textContent = 'Checking authentication…';
+        cap.classList.remove('unlocked');
+        lockBtn.classList.remove('unlocked');
+        iconLocked(true);
+      } else if (serverAdminPasswordRequired === false) {
+        lockBtn.disabled = false;
+        lockBtn.title = 'No HEY_ADMIN_TOKEN configured on server';
+        lockBtn.classList.add('unlocked');
+        cap.classList.add('unlocked');
+        cap.innerHTML = '<span>Unlocked</span> — API open (no login required)';
+        iconLocked(false);
+      } else {
+        lockBtn.disabled = false;
+        var tok = getAdminSessionToken();
+        if (tok) {
+          lockBtn.title = 'Sign out';
+          lockBtn.setAttribute('aria-label', 'Sign out admin session');
+          lockBtn.classList.add('unlocked');
+          cap.classList.add('unlocked');
+          cap.innerHTML = '<span>Unlocked</span>';
+          iconLocked(false);
+        } else {
+          lockBtn.title = 'Sign in';
+          lockBtn.setAttribute('aria-label', 'Admin sign-in');
+          lockBtn.classList.remove('unlocked');
+          cap.classList.remove('unlocked');
+          cap.innerHTML = '<span>Locked</span>';
+          iconLocked(true);
+        }
+      }
+      applyToolbarButtonState();
+    }
+
+    function probeServerAdminPassword() {
+      return fetch(heyApi('/api/training/audio-catalog'), { cache: 'no-store' })
+        .then(function (r) {
+          if (r.status === 401) return { required: true };
+          if (!r.ok) return { required: true };
+          return r.json().then(function (data) {
+            return { required: !!(data && data.adminRequired) };
+          });
+        })
+        .catch(function () {
+          return { required: true, probeError: true };
+        });
+    }
+
+    function openTrainingLoginModal() {
+      var overlay = document.getElementById('training-login-overlay');
+      var err = document.getElementById('training-login-error');
+      var u = document.getElementById('training-modal-username');
+      var p = document.getElementById('training-modal-password');
+      if (!overlay) return;
+      if (err) err.textContent = '';
+      if (u) u.value = '';
+      if (p) p.value = '';
+      overlay.classList.add('training-login-overlay-open');
+      overlay.setAttribute('aria-hidden', 'false');
+      window.setTimeout(function () {
+        if (u && u.focus) u.focus();
+      }, 60);
+    }
+
+    function closeTrainingLoginModal() {
+      var overlay = document.getElementById('training-login-overlay');
+      if (overlay) {
+        overlay.classList.remove('training-login-overlay-open');
+        overlay.setAttribute('aria-hidden', 'true');
+      }
+    }
+
+    function submitTrainingLogin() {
+      var err = document.getElementById('training-login-error');
+      var userEl = document.getElementById('training-modal-username');
+      var passEl = document.getElementById('training-modal-password');
+      var pwd = passEl && passEl.value ? String(passEl.value).trim() : '';
+      var user = userEl && userEl.value ? String(userEl.value).trim() : '';
+      if (err) err.textContent = '';
+      if (!pwd) {
+        if (err) err.textContent = 'Enter HEY_ADMIN_TOKEN.';
+        return;
+      }
+
+      fetch(heyApi('/api/auth/verify-admin'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pwd }),
+      })
+        .then(function (r) {
+          return r.json().then(function (body) {
+            return { ok: r.ok, status: r.status, body: body };
+          }).catch(function () {
+            return { ok: r.ok, status: r.status, body: {} };
+          });
+        })
+        .then(function (x) {
+          var notConfigured =
+            x.status === 503 ||
+            (x.body && x.body.authDisabled === true) ||
+            (x.body && x.body.code === 'ADMIN_TOKEN_NOT_SET');
+          if (notConfigured) {
+            if (err) {
+              err.textContent = typeof x.body.detail === 'string'
+                ? x.body.detail
+                : 'HEY_ADMIN_TOKEN is not set on the server — configure it and restart.';
+            }
+            return;
+          }
+          if (!x.ok || !x.body || !x.body.ok) {
+            if (err) {
+              err.textContent = (x.body && typeof x.body.error === 'string')
+                ? x.body.error
+                : 'Invalid HEY_ADMIN_TOKEN';
+            }
+            return;
+          }
+          setAdminSessionToken(pwd);
+          closeTrainingLoginModal();
+          refreshTrainingAuthChrome();
+          loadAudioCatalog();
+        })
+        .catch(function () {
+          if (err) err.textContent = 'Could not verify — check network and try again';
+        });
+    }
+
+    (function bindTrainingLoginUi() {
+      var lockBtn = document.getElementById('training-lock-btn');
+      if (lockBtn) {
+        lockBtn.addEventListener('click', function () {
+          if (serverAdminPasswordRequired !== true) return;
+          var tok = getAdminSessionToken();
+          if (!tok) {
+            openTrainingLoginModal();
+          } else if (window.confirm('Sign out and clear this tab’s HEY_ADMIN_TOKEN session?')) {
+            setAdminSessionToken('');
+            refreshTrainingAuthChrome();
+          }
+        });
+      }
+      var cancelBtn = document.getElementById('training-login-cancel');
+      if (cancelBtn) cancelBtn.addEventListener('click', closeTrainingLoginModal);
+      var backdropBtn = document.getElementById('training-login-backdrop');
+      if (backdropBtn) backdropBtn.addEventListener('click', closeTrainingLoginModal);
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key !== 'Escape') return;
+        var overlay = document.getElementById('training-login-overlay');
+        if (overlay && overlay.classList.contains('training-login-overlay-open')) {
+          ev.preventDefault();
+          closeTrainingLoginModal();
+        }
+      });
+      var loginForm = document.getElementById('training-login-form');
+      if (loginForm) {
+        loginForm.addEventListener('submit', function (ev) {
+          ev.preventDefault();
+          submitTrainingLogin();
+        });
+      }
+
+      probeServerAdminPassword().then(function (p) {
+        serverAdminPasswordRequired = !!(p && p.required);
+        refreshTrainingAuthChrome();
+        if (p && p.probeError) {
+          var st = document.getElementById('status');
+          if (st && !st.textContent) {
+            st.textContent = 'Could not reach server — check connection and refresh.';
+          }
+        }
+        if (trainingActionsAllowed()) {
+          loadAudioCatalog();
+        }
+      });
+    })();
+
     /** Display ISO times in the configured zone (DST per IANA). Stored values remain UTC in JSON. */
     function formatTimeIL(iso) {
       if (!iso || typeof iso !== 'string') return iso || '';
@@ -287,20 +852,30 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     }
 
     function authHeaders() {
-      var t = document.getElementById('token').value.trim();
+      var t = serverAdminPasswordRequired === false ? '' : getAdminSessionToken();
       var h = {};
       if (t) h['Authorization'] = 'Bearer ' + t;
       return h;
     }
 
+    /** @param relUrl Site-root `/api/training/.../audio`; `heyApi` applies optional deploy basename exactly once */
     function wavBlobUrl(relUrl) {
-      return fetch(relUrl, { headers: authHeaders() }).then(function (r) {
-        if (!r.ok) throw new Error(relUrl + ' → HTTP ' + r.status);
-        return r.blob();
-      }).then(function (blob) {
-        if (blob.size === 0) {
+      var u = heyApi(relUrl);
+      return fetch(u, { headers: authHeaders() }).then(function (r) {
+        if (!r.ok) throw new Error(u + ' → HTTP ' + r.status);
+        return r.arrayBuffer();
+      }).then(function (buf) {
+        if (!buf || buf.byteLength === 0) {
           throw new Error('Empty audio (0 bytes) — the file on disk has no PCM data; refreshing the page does not fix this.');
         }
+        var first4 = new Uint8Array(buf.slice(0, 4));
+        var sig = String.fromCharCode(first4[0], first4[1], first4[2], first4[3]);
+        if (sig !== 'RIFF') {
+          throw new Error(
+            'Expected WAV (RIFF) but got "' + sig + '" — often HTML/JSON from nginx or a bad proxy path. Open DevTools → Network for ' + u,
+          );
+        }
+        var blob = new Blob([buf], { type: 'audio/wav' });
         return URL.createObjectURL(blob);
       });
     }
@@ -363,7 +938,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       return out;
     }
 
-    function appendClip(container, title, metaLines, audioUrl, clipIdForPromote, clipIndex) {
+    function appendClip(container, title, metaLines, audioUrl, clipIdForPromote, clipIndex, classifyLogLine) {
       var wrap = document.createElement('div');
       wrap.className = 'clip';
       if (clipIndex != null && clipIndex !== '') {
@@ -396,7 +971,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         st.className = 'promote-status';
         function promote(label) {
           st.textContent = '…';
-          fetch('/api/training/inbox/' + encodeURIComponent(clipIdForPromote) + '/promote', {
+          fetch(heyApi('/api/training/inbox/' + encodeURIComponent(clipIdForPromote) + '/promote'), {
             method: 'POST',
             headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
             body: JSON.stringify({ label: label }),
@@ -442,24 +1017,36 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         wrap.appendChild(pr);
       }
 
+      if (classifyLogLine && typeof classifyLogLine === 'string') {
+        var ll = document.createElement('div');
+        ll.className = 'log-line is-collapsed';
+        ll.textContent = classifyLogLine;
+        wrap.appendChild(ll);
+        var toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'log-toggle';
+        toggle.textContent = 'Expand details';
+        toggle.onclick = function () {
+          var collapsed = ll.classList.toggle('is-collapsed');
+          toggle.textContent = collapsed ? 'Expand details' : 'Collapse';
+        };
+        wrap.appendChild(toggle);
+      }
+
       container.appendChild(wrap);
       return wrap;
     }
 
-    /** Collapsible block (native details/summary); clips go in clipContainer. */
+    /** Non-collapsible section block; clips go in clipContainer. */
     function section(title) {
-      var details = document.createElement('details');
-      details.className = 'catalog-section';
-      details.open = false;
-      var sum = document.createElement('summary');
-      sum.className = 'section-summary';
-      sum.textContent = title;
+      var wrap = document.createElement('div');
+      wrap.className = 'catalog-section';
       var body = document.createElement('div');
       body.className = 'section-body';
-      details.appendChild(sum);
-      details.appendChild(body);
-      details.clipContainer = body;
-      return details;
+      wrap.appendChild(body);
+      wrap.clipContainer = body;
+      wrap.summaryEl = null;
+      return wrap;
     }
 
     document.getElementById('hear-ids').onclick = function () {
@@ -476,7 +1063,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       var sec = section('Pasted clip IDs (' + ids.length + ')');
       ids.forEach(function (cid, i) {
         var wrap = appendClip(sec.clipContainer, cid, 'training_inbox/' + cid + '.wav', '/api/training/inbox/' + encodeURIComponent(cid) + '/audio', cid, i + 1);
-        fetch('/api/training/inbox/' + encodeURIComponent(cid) + '/wav-meta', { headers: authHeaders(), cache: 'no-store' })
+        fetch(heyApi('/api/training/inbox/' + encodeURIComponent(cid) + '/wav-meta'), { headers: authHeaders(), cache: 'no-store' })
           .then(function (r) {
             return r.ok ? r.json() : null;
           })
@@ -502,110 +1089,495 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     })();
 
     function setCatalogButtonsBusy(busy) {
-      var loadBtn = document.getElementById('load');
-      var refreshBtn = document.getElementById('refresh-catalog');
-      var trainBtn = document.getElementById('train-custom-head');
-      var clearBtn = document.getElementById('clear-inbox');
-      if (loadBtn) loadBtn.disabled = !!busy;
-      if (refreshBtn) refreshBtn.disabled = !!busy;
-      if (trainBtn) trainBtn.disabled = !!busy;
-      if (clearBtn) clearBtn.disabled = !!busy;
+      catalogActionsBusy = !!busy;
+      applyToolbarButtonState();
     }
 
-    function loadAudioCatalog() {
-      var status = document.getElementById('status');
-      var out = document.getElementById('out');
-      out.textContent = '';
-      status.textContent = 'Loading…';
-      setCatalogButtonsBusy(true);
+    (function bindCatalogTabs() {
+      var tabsEl = document.getElementById('catalog-tabs');
+      if (!tabsEl) return;
+      tabsEl.addEventListener('click', function (ev) {
+        var btn = ev.target.closest('.catalog-tab');
+        if (!btn || btn.classList.contains('catalog-tab-active')) return;
+        tabsEl.querySelectorAll('.catalog-tab').forEach(function (t) { t.classList.remove('catalog-tab-active'); });
+        btn.classList.add('catalog-tab-active');
+        var panelId = btn.getAttribute('data-panel');
+        document.querySelectorAll('.catalog-panel').forEach(function (p) { p.classList.remove('catalog-panel-active'); });
+        var panel = document.getElementById(panelId);
+        if (panel) panel.classList.add('catalog-panel-active');
+      });
+    })();
 
-      fetch('/api/training/audio-catalog', { headers: authHeaders(), cache: 'no-store' })
-        .then(function (r) {
-          if (r.status === 401) {
-            throw new Error('Unauthorized — enter the same token as HEY_ADMIN_TOKEN.');
+    (function initScrollToTop() {
+      var btn = document.getElementById('scroll-to-top');
+      if (!btn) return;
+      window.addEventListener('scroll', function () {
+        btn.style.display = window.scrollY > 300 ? 'flex' : 'none';
+      }, { passive: true });
+      btn.onclick = function () { window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    })();
+
+    (function initScrollToBottom() {
+      var btn = document.getElementById('scroll-to-bottom');
+      if (!btn) return;
+      function update() {
+        var atBottom = window.scrollY + window.innerHeight >= document.body.scrollHeight - 100;
+        btn.style.display = atBottom ? 'none' : 'flex';
+      }
+      window.addEventListener('scroll', update, { passive: true });
+      update();
+      btn.onclick = function () { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); };
+    })();
+
+    var catalogLoadingInFlight = false;
+    var inboxPageLoadInFlight = false;
+
+    var INBOX_PAGE_SIZE = 80;
+    var inboxSection = null;   // persists across "load more" calls
+    var inboxLoadedCount = 0;
+    var inboxTotalCount = 0;
+    var inboxCurrentPage = 0;
+    var inboxTotalPages = 0;
+    var inboxPagerTop = null;
+    var inboxPagerBottom = null;
+
+    // Client-side pagination state for Barks and Not Barks
+    var barksAllRows = [];
+    var barksCurrentPage = 1;
+    var barksPagerTop = null;
+    var barksPagerBottom = null;
+
+    var notBarksAllRows = [];
+    var notBarksCurrentPage = 1;
+    var notBarksPagerTop = null;
+    var notBarksPagerBottom = null;
+
+    // Returns a sorted, deduplicated array of page numbers to show, with null for ellipsis gaps.
+    function windowedPages(cur, total) {
+      if (total <= 1) return [];
+      var show = new Set();
+      // First 3
+      for (var i = 1; i <= Math.min(3, total); i++) show.add(i);
+      // Window around current
+      for (var j = Math.max(1, cur - 1); j <= Math.min(total, cur + 1); j++) show.add(j);
+      // Last 3
+      for (var k = Math.max(1, total - 2); k <= total; k++) show.add(k);
+      var sorted = Array.from(show).sort(function (a, b) { return a - b; });
+      // Insert null markers for gaps
+      var result = [];
+      for (var m = 0; m < sorted.length; m++) {
+        if (m > 0 && sorted[m] - sorted[m - 1] > 1) result.push(null);
+        result.push(sorted[m]);
+      }
+      return result;
+    }
+
+    function createSimplePager(getPage, setPage, getTotal, renderFn) {
+      var wrapper = document.createElement('div');
+      wrapper.className = 'pagination-controls';
+
+      var prev = document.createElement('button');
+      prev.type = 'button';
+      prev.className = 'load-more-btn';
+      prev.textContent = 'Prev';
+
+      var btnContainer = document.createElement('span');
+
+      var next = document.createElement('button');
+      next.type = 'button';
+      next.className = 'load-more-btn';
+      next.textContent = 'Next';
+
+      function update() {
+        var total = getTotal();
+        var cur = getPage();
+        prev.disabled = cur <= 1;
+        next.disabled = cur >= total;
+        btnContainer.innerHTML = '';
+        windowedPages(cur, total).forEach(function (p) {
+          if (p === null) {
+            var ell = document.createElement('span');
+            ell.className = 'page-ellipsis';
+            ell.textContent = '…';
+            btnContainer.appendChild(ell);
+          } else {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'page-btn' + (p === cur ? ' active' : '');
+            btn.textContent = String(p);
+            btn.disabled = p === cur;
+            btn.onclick = (function (pg) { return function () { setPage(pg); renderFn(); }; })(p);
+            btnContainer.appendChild(btn);
           }
+        });
+      }
+
+      prev.onclick = function () { if (getPage() > 1) { setPage(getPage() - 1); renderFn(); } };
+      next.onclick = function () { if (getPage() < getTotal()) { setPage(getPage() + 1); renderFn(); } };
+
+      wrapper.appendChild(prev);
+      wrapper.appendChild(btnContainer);
+      wrapper.appendChild(next);
+
+      return { root: wrapper, update: update };
+    }
+
+    function renderBarksPage() {
+      var panelBarks = document.getElementById('panel-barks');
+      if (!panelBarks) return;
+      var total = Math.max(1, Math.ceil(barksAllRows.length / INBOX_PAGE_SIZE));
+      barksCurrentPage = Math.max(1, Math.min(barksCurrentPage, total));
+      var start = (barksCurrentPage - 1) * INBOX_PAGE_SIZE;
+      var rows = barksAllRows.slice(start, start + INBOX_PAGE_SIZE);
+      var body = panelBarks.querySelector('.bark-body');
+      if (body) body.innerHTML = '';
+      rows.forEach(function (row, i) {
+        var parts = [
+          'bytes=' + (row.bytes || 0),
+          catalogRmsPart(row),
+          row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
+        ].filter(Boolean);
+        appendClip(body, row.name, parts.join(' · '), '/api/training/custom-clips/bark/' + encodeURIComponent(row.name) + '/audio', undefined, start + i + 1);
+      });
+      [barksPagerTop, barksPagerBottom].forEach(function (p) { if (p) p.update(); });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function renderNotBarksPage() {
+      var panelNotBarks = document.getElementById('panel-not-barks');
+      if (!panelNotBarks) return;
+      var total = Math.max(1, Math.ceil(notBarksAllRows.length / INBOX_PAGE_SIZE));
+      notBarksCurrentPage = Math.max(1, Math.min(notBarksCurrentPage, total));
+      var start = (notBarksCurrentPage - 1) * INBOX_PAGE_SIZE;
+      var rows = notBarksAllRows.slice(start, start + INBOX_PAGE_SIZE);
+      var body = panelNotBarks.querySelector('.not-bark-body');
+      if (body) body.innerHTML = '';
+      rows.forEach(function (row, i) {
+        var parts = [
+          'bytes=' + (row.bytes || 0),
+          catalogRmsPart(row),
+          row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
+        ].filter(Boolean);
+        appendClip(body, row.name, parts.join(' · '), '/api/training/custom-clips/not_bark/' + encodeURIComponent(row.name) + '/audio', undefined, start + i + 1);
+      });
+      [notBarksPagerTop, notBarksPagerBottom].forEach(function (p) { if (p) p.update(); });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function inboxPagers() {
+      var pages = [];
+      if (inboxPagerTop) pages.push(inboxPagerTop);
+      if (inboxPagerBottom && inboxPagerBottom !== inboxPagerTop) pages.push(inboxPagerBottom);
+      return pages;
+    }
+
+    function buildInboxPageButtons(pager) {
+      if (!pager || !pager.btnContainer) return;
+      pager.btnContainer.innerHTML = '';
+      var cur = Math.max(1, Math.min(inboxCurrentPage, inboxTotalPages));
+      windowedPages(cur, inboxTotalPages).forEach(function (p) {
+        if (p === null) {
+          var ell = document.createElement('span');
+          ell.className = 'page-ellipsis';
+          ell.textContent = '…';
+          pager.btnContainer.appendChild(ell);
+        } else {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'page-btn' + (p === cur ? ' active' : '');
+          btn.textContent = String(p);
+          btn.disabled = p === cur;
+          btn.onclick = (function (pg) { return function () { goToInboxPage(pg); }; })(p);
+          pager.btnContainer.appendChild(btn);
+        }
+      });
+    }
+
+    function setLoadMoreLoading(isLoading) {
+      if (!isLoading) {
+        renderPagination();
+        return;
+      }
+      inboxPagers().forEach(function (pager) {
+        if (!pager || !pager.root) return;
+        pager.prevBtn.disabled = true;
+        pager.nextBtn.disabled = true;
+        if (pager.btnContainer) pager.btnContainer.innerHTML = '';
+      });
+    }
+
+    function renderPagination() {
+      var pages = inboxPagers();
+      if (!pages.length) return;
+      var shownThrough = Math.min(inboxCurrentPage * INBOX_PAGE_SIZE, inboxTotalCount);
+      var remaining = inboxTotalCount - shownThrough;
+      pages.forEach(function (pager) {
+        pager.prevBtn.disabled = inboxCurrentPage <= 1;
+        pager.nextBtn.disabled = remaining <= 0;
+        buildInboxPageButtons(pager);
+      });
+    }
+
+    function goToInboxPage(targetPage) {
+      var total = inboxTotalPages || 1;
+      if (!Number.isFinite(targetPage)) return;
+      if (targetPage < 1 || targetPage > total || targetPage === inboxCurrentPage) return;
+      var offset = (targetPage - 1) * INBOX_PAGE_SIZE;
+      loadInboxPage(offset, false, true);
+    }
+
+    function createInboxPager() {
+      var wrapper = document.createElement('div');
+      wrapper.className = 'pagination-controls';
+
+      var prev = document.createElement('button');
+      prev.type = 'button';
+      prev.className = 'load-more-btn';
+      prev.textContent = 'Prev';
+
+      var btnContainer = document.createElement('span');
+
+      var next = document.createElement('button');
+      next.type = 'button';
+      next.className = 'load-more-btn';
+      next.textContent = 'Next';
+
+      prev.addEventListener('click', function () {
+        goToInboxPage(inboxCurrentPage - 1);
+      });
+      next.addEventListener('click', function () {
+        goToInboxPage(inboxCurrentPage + 1);
+      });
+
+      wrapper.appendChild(prev);
+      wrapper.appendChild(btnContainer);
+      wrapper.appendChild(next);
+
+      return {
+        root: wrapper,
+        prevBtn: prev,
+        btnContainer: btnContainer,
+        nextBtn: next,
+      };
+    }
+
+    function appendInboxRows(rows, startIndex) {
+      rows.forEach(function (row, i) {
+        var parts = [
+          'bytes=' + (row.bytes || 0),
+          catalogRmsPart(row),
+          row.capturedAt ? formatTimeIL(row.capturedAt) : '',
+          row.clipId || '',
+          row.topLabel != null ? 'topLabel=' + row.topLabel : '',
+          row.isBark != null ? 'is_bark=' + row.isBark : '',
+        ].filter(Boolean);
+        appendClip(
+          inboxSection.clipContainer,
+          row.clipId || '(no id)',
+          parts.join(' · '),
+          '/api/training/inbox/' + encodeURIComponent(row.clipId) + '/audio',
+          row.clipId,
+          startIndex + i + 1,
+          row.classifyLogLine || '',
+        );
+      });
+    }
+
+    function updateInboxLoadMoreBtn() {
+      setLoadMoreLoading(false);
+    }
+
+    function loadInboxPage(offset, isFirstLoad, replaceInboxRows) {
+      var pageNum = Math.floor((offset || 0) / INBOX_PAGE_SIZE) + 1;
+      var status = document.getElementById('status');
+      if (!isFirstLoad) {
+        if (inboxPageLoadInFlight) return;
+        inboxPageLoadInFlight = true;
+      }
+      if (isFirstLoad) {
+        catalogLoadingInFlight = true;
+        setCatalogButtonsBusy(true);
+      } else if (inboxPagers().length) {
+        setLoadMoreLoading(true);
+      }
+
+      var url = '/api/training/audio-catalog?limit=' + INBOX_PAGE_SIZE + '&offset=' + offset;
+      fetch(heyApi(url), { headers: authHeaders(), cache: 'no-store' })
+        .then(function (r) {
+          if (r.status === 401) throw new Error('Unauthorized — open the lock icon and sign in with HEY_ADMIN_TOKEN.');
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
         })
         .then(function (data) {
-          status.textContent = '';
-          if (data.adminRequired && !document.getElementById('token').value.trim()) {
-            status.textContent = 'Tip: this server requires a token — paste it above and click Load or Refresh.';
+          if (isFirstLoad) {
+            status.textContent = '';
+            if (data.adminRequired && !getAdminSessionToken()) {
+              status.textContent = 'Tip: tap the lock to sign in, then tap Load all clips.';
+            }
           }
 
           var inboxRows = data.inbox || [];
-          if (inboxRows.length) {
-            var s = section('Training inbox (' + inboxRows.length + ')');
-            inboxRows.forEach(function (row, i) {
-              var parts = [
-                'bytes=' + (row.bytes || 0),
-                catalogRmsPart(row),
-                row.capturedAt ? formatTimeIL(row.capturedAt) : '',
-                row.clipId || '',
-                row.topLabel != null ? 'topLabel=' + row.topLabel : '',
-                row.isBark != null ? 'is_bark=' + row.isBark : '',
-              ].filter(Boolean);
-              appendClip(s.clipContainer, row.clipId || '(no id)', parts.join(' · '), '/api/training/inbox/' + encodeURIComponent(row.clipId) + '/audio', row.clipId, i + 1);
-            });
-            out.appendChild(s);
-          }
+          inboxTotalCount = data.inboxTotal != null ? data.inboxTotal : inboxRows.length;
+          inboxTotalPages = Math.max(1, Math.ceil(inboxTotalCount / INBOX_PAGE_SIZE));
+          inboxCurrentPage = pageNum;
 
-          var mic = data.micTemp || [];
-          if (mic.length) {
-            var s2 = section('Mic temp (' + mic.length + ') — data/mic_temp');
-            mic.forEach(function (row, i) {
-              var parts = [
-                'bytes=' + (row.bytes || 0),
-                catalogRmsPart(row),
-                row.mtime ? formatTimeIL(row.mtime) : '',
-              ].filter(Boolean);
-              appendClip(s2.clipContainer, row.name, parts.join(' · '), '/api/training/mic-temp/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
-            });
-            out.appendChild(s2);
-          }
+          if (isFirstLoad) {
+            inboxLoadedCount = 0;
+            inboxSection = null;
+            inboxPagerTop = null;
+            inboxPagerBottom = null;
+            var panelInbox = document.getElementById('panel-inbox');
+            var panelBarks = document.getElementById('panel-barks');
+            var panelNotBarks = document.getElementById('panel-not-barks');
 
-          var cb = (data.custom && data.custom.bark) || [];
-          if (cb.length) {
-            var s3 = section('Custom clips — bark (' + cb.length + ')');
-            cb.forEach(function (row, i) {
-              var parts = [
-                'bytes=' + (row.bytes || 0),
-                catalogRmsPart(row),
-                row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
-              ].filter(Boolean);
-              appendClip(s3.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
-            });
-            out.appendChild(s3);
-          }
+            if (inboxTotalCount > 0) {
+              inboxSection = section('Training inbox (' + inboxTotalCount + ')');
+              appendInboxRows(inboxRows, 0);
+              inboxLoadedCount = inboxRows.length;
+              inboxPagerTop = createInboxPager();
+              inboxPagerBottom = createInboxPager();
+              panelInbox.appendChild(inboxPagerTop.root);
+              panelInbox.appendChild(inboxSection);
+              panelInbox.appendChild(inboxPagerBottom.root);
+            }
 
-          var cn = (data.custom && data.custom.not_bark) || [];
-          if (cn.length) {
-            var s4 = section('Custom clips — not_bark (' + cn.length + ')');
-            cn.forEach(function (row, i) {
-              var parts = [
-                'bytes=' + (row.bytes || 0),
-                catalogRmsPart(row),
-                row.capturedAt ? formatTimeIL(row.capturedAt) : row.mtime ? formatTimeIL(row.mtime) : '',
-              ].filter(Boolean);
-              appendClip(s4.clipContainer, row.name, parts.join(' · '), '/api/training/custom-clips/not_bark/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
-            });
-            out.appendChild(s4);
-          }
+            var mic = data.micTemp || [];
+            if (mic.length) {
+              var s2 = section('Mic temp (' + mic.length + ') — data/mic_temp');
+              mic.forEach(function (row, i) {
+                var parts = [
+                  'bytes=' + (row.bytes || 0),
+                  catalogRmsPart(row),
+                  row.mtime ? formatTimeIL(row.mtime) : '',
+                ].filter(Boolean);
+                appendClip(s2.clipContainer, row.name, parts.join(' · '), '/api/training/mic-temp/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
+              });
+              panelInbox.appendChild(s2);
+            }
 
-          if (!inboxRows.length && !mic.length && !cb.length && !cn.length) {
-            status.textContent = 'No WAV files found under training_inbox, mic_temp, or custom_clips.';
+            var cb = (data.custom && data.custom.bark) || [];
+            barksAllRows = cb;
+            barksCurrentPage = 1;
+            if (cb.length) {
+              var barkBody = document.createElement('div');
+              barkBody.className = 'bark-body';
+              barksPagerTop = createSimplePager(
+                function () { return barksCurrentPage; },
+                function (p) { barksCurrentPage = p; },
+                function () { return Math.max(1, Math.ceil(barksAllRows.length / INBOX_PAGE_SIZE)); },
+                renderBarksPage
+              );
+              barksPagerBottom = createSimplePager(
+                function () { return barksCurrentPage; },
+                function (p) { barksCurrentPage = p; },
+                function () { return Math.max(1, Math.ceil(barksAllRows.length / INBOX_PAGE_SIZE)); },
+                renderBarksPage
+              );
+              panelBarks.appendChild(barksPagerTop.root);
+              panelBarks.appendChild(barkBody);
+              panelBarks.appendChild(barksPagerBottom.root);
+              renderBarksPage();
+            }
+
+            var cn = (data.custom && data.custom.not_bark) || [];
+            notBarksAllRows = cn;
+            notBarksCurrentPage = 1;
+            if (cn.length) {
+              var notBarkBody = document.createElement('div');
+              notBarkBody.className = 'not-bark-body';
+              notBarksPagerTop = createSimplePager(
+                function () { return notBarksCurrentPage; },
+                function (p) { notBarksCurrentPage = p; },
+                function () { return Math.max(1, Math.ceil(notBarksAllRows.length / INBOX_PAGE_SIZE)); },
+                renderNotBarksPage
+              );
+              notBarksPagerBottom = createSimplePager(
+                function () { return notBarksCurrentPage; },
+                function (p) { notBarksCurrentPage = p; },
+                function () { return Math.max(1, Math.ceil(notBarksAllRows.length / INBOX_PAGE_SIZE)); },
+                renderNotBarksPage
+              );
+              panelNotBarks.appendChild(notBarksPagerTop.root);
+              panelNotBarks.appendChild(notBarkBody);
+              panelNotBarks.appendChild(notBarksPagerBottom.root);
+              renderNotBarksPage();
+            }
+
+            var tabsEl = document.getElementById('catalog-tabs');
+            var countInbox = document.getElementById('tab-count-inbox');
+            var countBarks = document.getElementById('tab-count-barks');
+            var countNotBarks = document.getElementById('tab-count-not-barks');
+            if (countInbox) countInbox.textContent = inboxTotalCount ? ' ' + inboxTotalCount : '';
+            if (countBarks) countBarks.textContent = cb.length ? ' ' + cb.length : '';
+            if (countNotBarks) countNotBarks.textContent = cn.length ? ' ' + cn.length : '';
+            if (tabsEl && (inboxTotalCount || cb.length || cn.length || mic.length)) tabsEl.style.display = '';
+
+            if (inboxPagerTop || inboxPagerBottom) {
+              updateInboxLoadMoreBtn();
+            }
+
+            if (!inboxTotalCount && !mic.length && !cb.length && !cn.length) {
+              status.textContent = 'No WAV files found under training_inbox, mic_temp, or custom_clips.';
+            }
+          } else {
+            if (replaceInboxRows || !inboxSection) {
+              if (!inboxSection) {
+                inboxSection = section('Training inbox (' + inboxTotalCount + ')');
+              }
+              if (inboxSection.clipContainer) {
+                inboxSection.clipContainer.innerHTML = '';
+              }
+              appendInboxRows(inboxRows, (inboxCurrentPage - 1) * INBOX_PAGE_SIZE);
+              inboxLoadedCount = inboxRows.length;
+            } else {
+              appendInboxRows(inboxRows, inboxLoadedCount);
+              inboxLoadedCount += inboxRows.length;
+            }
+            setLoadMoreLoading(false);
+            updateInboxLoadMoreBtn();
           }
         })
         .catch(function (e) {
-          status.innerHTML = '<span class="err">' + String(e.message || e) + '</span>';
+          var status = document.getElementById('status');
+          setStatusError(status, e.message || e);
+          if (inboxPagers().length) {
+            setLoadMoreLoading(false);
+            updateInboxLoadMoreBtn();
+          }
         })
         .finally(function () {
-          setCatalogButtonsBusy(false);
+          if (isFirstLoad) {
+            catalogLoadingInFlight = false;
+            setCatalogButtonsBusy(false);
+          } else {
+            inboxPageLoadInFlight = false;
+          }
         });
     }
 
+    function loadAudioCatalog() {
+      if (catalogLoadingInFlight) return;
+      barksAllRows = []; barksCurrentPage = 1; barksPagerTop = null; barksPagerBottom = null;
+      notBarksAllRows = []; notBarksCurrentPage = 1; notBarksPagerTop = null; notBarksPagerBottom = null;
+      ['panel-inbox', 'panel-barks', 'panel-not-barks'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = '';
+      });
+      var tabsEl = document.getElementById('catalog-tabs');
+      if (tabsEl) {
+        tabsEl.style.display = 'none';
+        tabsEl.querySelectorAll('.catalog-tab').forEach(function (t) { t.classList.remove('catalog-tab-active'); });
+        var firstTab = tabsEl.querySelector('.catalog-tab');
+        if (firstTab) firstTab.classList.add('catalog-tab-active');
+      }
+      document.querySelectorAll('.catalog-panel').forEach(function (p) { p.classList.remove('catalog-panel-active'); });
+      var firstPanel = document.getElementById('panel-inbox');
+      if (firstPanel) firstPanel.classList.add('catalog-panel-active');
+      document.getElementById('status').textContent = 'Loading…';
+      loadInboxPage(0, true);
+    }
+
     document.getElementById('load').onclick = loadAudioCatalog;
-    document.getElementById('refresh-catalog').onclick = loadAudioCatalog;
 
     document.getElementById('train-custom-head').onclick = function () {
       var status = document.getElementById('status');
@@ -618,7 +1590,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       }
       setCatalogButtonsBusy(true);
       status.textContent = 'Training custom head… (wait for the server to finish)';
-      fetch('/api/custom-head/train', {
+      fetch(heyApi('/api/custom-head/train'), {
         method: 'POST',
         headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
         body: '{}',
@@ -631,7 +1603,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         })
         .then(function (x) {
           if (x.status === 401) {
-            status.innerHTML = '<span class="err">Unauthorized — paste HEY_ADMIN_TOKEN above.</span>';
+            setStatusError(status, 'Unauthorized — tap the lock and enter HEY_ADMIN_TOKEN.');
             return;
           }
           if (x.ok && x.j && x.j.ok) {
@@ -714,7 +1686,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       }
       setCatalogButtonsBusy(true);
       status.textContent = 'Clearing training inbox…';
-      fetch('/api/training/inbox', { method: 'DELETE', headers: authHeaders(), cache: 'no-store' })
+      fetch(heyApi('/api/training/inbox'), { method: 'DELETE', headers: authHeaders(), cache: 'no-store' })
         .then(function (r) {
           return r.json().then(function (j) {
             return { ok: r.ok, status: r.status, j: j };
@@ -722,13 +1694,12 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         })
         .then(function (x) {
           if (x.status === 401) {
-            status.innerHTML = '<span class="err">Unauthorized — paste HEY_ADMIN_TOKEN above.</span>';
+            setStatusError(status, 'Unauthorized — tap the lock and enter HEY_ADMIN_TOKEN.');
             setCatalogButtonsBusy(false);
             return;
           }
           if (!x.ok || !x.j || !x.j.ok) {
-            status.innerHTML =
-              '<span class="err">' + ((x.j && x.j.error) ? x.j.error : 'HTTP ' + x.status) + '</span>';
+            setStatusError(status, (x.j && x.j.error) ? x.j.error : ('HTTP ' + x.status));
             setCatalogButtonsBusy(false);
             return;
           }
@@ -737,7 +1708,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
           loadAudioCatalog();
         })
         .catch(function (e) {
-          status.innerHTML = '<span class="err">' + String(e.message || e) + '</span>';
+          setStatusError(status, e.message || e);
           setCatalogButtonsBusy(false);
         });
     };

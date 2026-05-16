@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Typography,
-  InputAdornment, IconButton,
+  InputAdornment, IconButton, Box,
 } from '@mui/material';
 import LockIcon from '@mui/icons-material/Lock';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -16,6 +16,7 @@ import { apiUrl } from '../apiBase';
  * @param {() => void} [props.onLoggedIn] Called after token is stored (e.g. retry pending save)
  */
 export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -23,6 +24,7 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
 
   useEffect(() => {
     if (open) {
+      setUsername('');
       setPassword('');
       setError('');
       setShowPassword(false);
@@ -31,9 +33,10 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
   }, [open]);
 
   const submit = async () => {
+    const u = username.trim();
     const t = password.trim();
     if (!t) {
-      setError('Enter the admin password');
+      setError('Enter HEY_ADMIN_TOKEN');
       return;
     }
     setError('');
@@ -42,7 +45,7 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
       const res = await fetch(apiUrl('/auth/verify-admin'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: t }),
+        body: JSON.stringify({ username: u, password: t, audience: 'main' }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -93,50 +96,81 @@ export default function AdminLoginDialog({ open, onClose, onLoggedIn }) {
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <LockIcon sx={{ color: '#66bb6a' }} />
-        Admin password
+        Admin login
       </DialogTitle>
       <DialogContent>
         <Typography variant="body2" sx={{ color: 'grey.400', mb: 2 }}>
-          The server requires a password to change settings or delete barks. Use the same value as{' '}
+          Enter a display name (optional, recorded on the server when you sign in for audit) and the secret that matches{' '}
           <Typography component="span" variant="body2" sx={{ fontFamily: 'monospace', color: '#a5d6a7' }}>
             HEY_ADMIN_TOKEN
           </Typography>{' '}
-          on the Pi. Stored in this browser tab until you close it.
+          on the Pi. The token is stored in this browser tab until you close it.
         </Typography>
-        <TextField
-          autoFocus
-          fullWidth
-          variant="outlined"
-          type={showPassword ? 'text' : 'password'}
-          label="Password"
-          value={password}
-          onChange={(e) => { setPassword(e.target.value); setError(''); }}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void submit(); } }}
-          error={!!error}
-          helperText={error || ' '}
-          InputLabelProps={{ shrink: true }}
-          InputProps={{
-            endAdornment: (
-              <InputAdornment position="end">
-                <IconButton
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  onClick={() => setShowPassword((v) => !v)}
-                  onMouseDown={(e) => e.preventDefault()}
-                  edge="end"
-                  sx={{ color: 'grey.400' }}
-                >
-                  {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                </IconButton>
-              </InputAdornment>
-            ),
-          }}
-          sx={{
-            '& .MuiOutlinedInput-root': { bgcolor: 'rgba(255,255,255,0.06)', color: 'white' },
-            '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.2)' },
-            '& .MuiInputLabel-root': { color: 'grey.500' },
-            '& .MuiFormHelperText-root': { color: error ? 'error.main' : 'transparent' },
-          }}
-        />
+        <Box component="form" autoComplete="on" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+          <TextField
+            autoFocus
+            fullWidth
+            variant="outlined"
+            type="text"
+            label="Username"
+            name="hey-display-name"
+            autoComplete="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            sx={{
+              mb: 1.5,
+              '& .MuiOutlinedInput-root': { bgcolor: 'rgba(255,255,255,0.06)', color: 'white' },
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.2)' },
+              '& .MuiInputLabel-root': { color: 'grey.500' },
+            }}
+            inputProps={{
+              autoCapitalize: 'none',
+              autoCorrect: 'off',
+              spellCheck: false,
+              autoComplete: 'username',
+            }}
+          />
+          <TextField
+            fullWidth
+            variant="outlined"
+            type={showPassword ? 'text' : 'password'}
+            label="Password"
+            name="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => { setPassword(e.target.value); setError(''); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void submit(); } }}
+            error={!!error}
+            helperText={error || ' '}
+            InputLabelProps={{ shrink: true }}
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    onClick={() => setShowPassword((v) => !v)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    edge="end"
+                    sx={{ color: 'grey.400' }}
+                  >
+                    {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            inputProps={{
+              autoCapitalize: 'none',
+              autoCorrect: 'off',
+              spellCheck: false,
+            }}
+            sx={{
+              '& .MuiOutlinedInput-root': { bgcolor: 'rgba(255,255,255,0.06)', color: 'white' },
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.2)' },
+              '& .MuiInputLabel-root': { color: 'grey.500' },
+              '& .MuiFormHelperText-root': { color: error ? 'error.main' : 'transparent' },
+            }}
+          />
+        </Box>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} sx={{ color: 'grey.400' }}>Cancel</Button>

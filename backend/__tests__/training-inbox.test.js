@@ -83,7 +83,7 @@ describe('training-inbox promote + resolve', () => {
   test('clearEntireInbox removes wav/json and leaves dir empty of clips', () => {
     const out = trainingInbox.clearEntireInbox(root);
     expect(out.removedFiles).toBeGreaterThanOrEqual(2);
-    expect(trainingInbox.listInbox(root).length).toBe(0);
+    expect(trainingInbox.listInbox(root).rows.length).toBe(0);
     const again = trainingInbox.clearEntireInbox(root);
     expect(again.removedFiles).toBe(0);
   });
