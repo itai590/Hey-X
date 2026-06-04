@@ -63,12 +63,17 @@
       color: var(--text);
     }
     .catalog-section .section-body { padding-left: 0.15rem; }
-    #scroll-to-top {
+    .scroll-fab-stack {
       position: fixed;
-      bottom: 1.5rem;
+      top: 1.5rem;
       right: 1.5rem;
       z-index: 999;
       display: none;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+    .scroll-fab-btn {
+      display: flex;
       align-items: center;
       justify-content: center;
       background: var(--accent);
@@ -83,7 +88,7 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.35);
       transition: opacity 0.2s;
     }
-    #scroll-to-top:hover { opacity: 0.85; }
+    .scroll-fab-btn:hover { opacity: 0.85; }
     button.load-more-btn { margin: 0.5rem 0; display: block; }
     .pagination-controls {
       margin: 0.4rem 0 0.6rem;
@@ -92,19 +97,21 @@
       flex-wrap: wrap;
       gap: 0.45rem;
     }
-    .pagination-controls .pagination-page {
+    .pagination-controls .pagination-page,
+    .pagination-controls .page-nav-current {
       color: var(--text-muted);
       font-size: 0.82rem;
       white-space: nowrap;
-    }
-    .pagination-controls .page-select {
-      background: var(--bg-elev);
+      min-width: 1.6rem;
+      text-align: center;
+      font-weight: 700;
       color: var(--text);
-      border: 1px solid var(--border-strong);
-      border-radius: 10px;
-      padding: 0.32rem 0.45rem;
-      font-size: 0.8rem;
-      max-width: 4.8rem;
+    }
+    .pagination-controls .page-nav-btn {
+      min-width: 2.4rem;
+    }
+    .pagination-controls .page-nav-num:disabled {
+      opacity: 0.35;
     }
     .training-toolbar {
       margin-bottom: 1rem;
@@ -527,7 +534,10 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
   <div id="panel-barks" class="catalog-panel"></div>
   <div id="panel-not-barks" class="catalog-panel"></div>
 
-  <button type="button" id="scroll-to-top" title="Scroll to top" aria-label="Scroll to top">↑</button>
+  <div class="scroll-fab-stack" id="scroll-fab-stack">
+    <button type="button" class="scroll-fab-btn" id="scroll-to-top" title="Scroll to top" aria-label="Scroll to top">↑</button>
+    <button type="button" class="scroll-fab-btn" id="scroll-to-bottom" title="Scroll to bottom" aria-label="Scroll to bottom">↓</button>
+  </div>
 
   <script>
     /**
@@ -1071,13 +1081,22 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       });
     })();
 
-    (function initScrollToTop() {
-      var btn = document.getElementById('scroll-to-top');
-      if (!btn) return;
-      window.addEventListener('scroll', function () {
-        btn.style.display = window.scrollY > 300 ? 'flex' : 'none';
-      }, { passive: true });
-      btn.onclick = function () { window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    (function initScrollButtons() {
+      var stack = document.getElementById('scroll-fab-stack');
+      var topBtn = document.getElementById('scroll-to-top');
+      var bottomBtn = document.getElementById('scroll-to-bottom');
+      if (!stack || !topBtn || !bottomBtn) return;
+      function refreshVisibility() {
+        var canScroll = document.documentElement.scrollHeight > window.innerHeight + 40;
+        stack.style.display = canScroll ? 'flex' : 'none';
+      }
+      window.addEventListener('scroll', refreshVisibility, { passive: true });
+      window.addEventListener('resize', refreshVisibility);
+      refreshVisibility();
+      topBtn.onclick = function () { window.scrollTo({ top: 0, behavior: 'smooth' }); };
+      bottomBtn.onclick = function () {
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+      };
     })();
 
     var catalogLoadingInFlight = false;
@@ -1103,56 +1122,82 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     var notBarksPagerTop = null;
     var notBarksPagerBottom = null;
 
-    function createSimplePager(getPage, setPage, getTotal, renderFn) {
+    function createPageNavPager(onGoToPage, getPage, getTotal) {
       var wrapper = document.createElement('div');
       wrapper.className = 'pagination-controls';
 
-      var prev = document.createElement('button');
-      prev.type = 'button';
-      prev.className = 'load-more-btn';
-      prev.textContent = 'Prev';
+      var firstBtn = document.createElement('button');
+      firstBtn.type = 'button';
+      firstBtn.className = 'load-more-btn page-nav-btn';
+      firstBtn.textContent = 'First';
 
-      var pageInfo = document.createElement('span');
-      pageInfo.className = 'pagination-page';
+      var prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.className = 'load-more-btn page-nav-btn page-nav-num';
+      prevBtn.title = 'Previous page';
 
-      var select = document.createElement('select');
-      select.className = 'page-select';
-      select.title = 'Go to page';
+      var curLabel = document.createElement('span');
+      curLabel.className = 'page-nav-current';
+      curLabel.title = 'Current page';
 
-      var next = document.createElement('button');
-      next.type = 'button';
-      next.className = 'load-more-btn';
-      next.textContent = 'Next';
+      var nextBtn = document.createElement('button');
+      nextBtn.type = 'button';
+      nextBtn.className = 'load-more-btn page-nav-btn page-nav-num';
+      nextBtn.title = 'Next page';
+
+      var lastBtn = document.createElement('button');
+      lastBtn.type = 'button';
+      lastBtn.className = 'load-more-btn page-nav-btn';
+      lastBtn.textContent = 'Last';
+
+      firstBtn.onclick = function () { onGoToPage(1); };
+      prevBtn.onclick = function () { onGoToPage(getPage() - 1); };
+      nextBtn.onclick = function () { onGoToPage(getPage() + 1); };
+      lastBtn.onclick = function () { onGoToPage(getTotal()); };
+
+      wrapper.appendChild(firstBtn);
+      wrapper.appendChild(prevBtn);
+      wrapper.appendChild(curLabel);
+      wrapper.appendChild(nextBtn);
+      wrapper.appendChild(lastBtn);
 
       function update() {
-        var total = getTotal();
-        var cur = getPage();
-        prev.disabled = cur <= 1;
-        next.disabled = cur >= total;
-        pageInfo.textContent = 'Page ' + cur + ' / ' + total;
-        select.textContent = '';
-        if (total <= 1) { select.style.display = 'none'; } else {
-          select.style.display = '';
-          for (var p = 1; p <= total; p++) {
-            var opt = document.createElement('option');
-            opt.value = String(p);
-            opt.textContent = String(p);
-            select.appendChild(opt);
-          }
-          select.value = String(cur);
-        }
+        var total = Math.max(1, getTotal());
+        var cur = Math.max(1, Math.min(getPage(), total));
+        firstBtn.disabled = cur <= 1;
+        prevBtn.disabled = cur <= 1;
+        prevBtn.textContent = cur <= 1 ? '—' : String(cur - 1);
+        curLabel.textContent = String(cur);
+        curLabel.title = 'Page ' + cur + ' / ' + total;
+        nextBtn.disabled = cur >= total;
+        nextBtn.textContent = cur >= total ? '—' : String(cur + 1);
+        lastBtn.disabled = cur >= total;
       }
 
-      prev.onclick = function () { if (getPage() > 1) { setPage(getPage() - 1); renderFn(); } };
-      next.onclick = function () { if (getPage() < getTotal()) { setPage(getPage() + 1); renderFn(); } };
-      select.onchange = function () { var n = parseInt(select.value, 10); if (!isNaN(n)) { setPage(n); renderFn(); } };
+      return {
+        root: wrapper,
+        update: update,
+        firstBtn: firstBtn,
+        prevBtn: prevBtn,
+        curLabel: curLabel,
+        nextBtn: nextBtn,
+        lastBtn: lastBtn,
+      };
+    }
 
-      wrapper.appendChild(prev);
-      wrapper.appendChild(pageInfo);
-      wrapper.appendChild(select);
-      wrapper.appendChild(next);
-
-      return { root: wrapper, update: update };
+    function createSimplePager(getPage, setPage, getTotal, renderFn) {
+      var pager = createPageNavPager(
+        function (target) {
+          var total = getTotal();
+          var next = Math.max(1, Math.min(target, total));
+          if (next === getPage()) return;
+          setPage(next);
+          renderFn();
+        },
+        getPage,
+        getTotal,
+      );
+      return pager;
     }
 
     function renderBarksPage() {
@@ -1204,21 +1249,11 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       return pages;
     }
 
-    function buildPageSelectOptions(pager) {
-      if (!pager || !pager.pageSelect) return;
-      pager.pageSelect.textContent = '';
-      if (inboxTotalPages <= 1) {
-        pager.pageSelect.style.display = 'none';
-        return;
-      }
-      pager.pageSelect.style.display = '';
-      for (var p = 1; p <= inboxTotalPages; p++) {
-        var opt = document.createElement('option');
-        opt.value = String(p);
-        opt.textContent = String(p);
-        pager.pageSelect.appendChild(opt);
-      }
-      pager.pageSelect.value = String(Math.max(1, Math.min(inboxCurrentPage, inboxTotalPages)));
+    function setPagerDisabled(pager, disabled) {
+      if (!pager) return;
+      [pager.firstBtn, pager.prevBtn, pager.nextBtn, pager.lastBtn].forEach(function (btn) {
+        if (btn) btn.disabled = !!disabled;
+      });
     }
 
     function setLoadMoreLoading(isLoading) {
@@ -1227,24 +1262,13 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         return;
       }
       inboxPagers().forEach(function (pager) {
-        if (!pager || !pager.root) return;
-        pager.prevBtn.disabled = true;
-        pager.nextBtn.disabled = true;
-        if (pager.pageSelect) pager.pageSelect.disabled = true;
+        setPagerDisabled(pager, true);
       });
     }
 
     function renderPagination() {
-      var pages = inboxPagers();
-      if (!pages.length) return;
-      var shownThrough = Math.min(inboxCurrentPage * INBOX_PAGE_SIZE, inboxTotalCount);
-      var remaining = inboxTotalCount - shownThrough;
-      pages.forEach(function (pager) {
-        pager.prevBtn.disabled = inboxCurrentPage <= 1;
-        pager.nextBtn.disabled = remaining <= 0;
-        pager.pageInfo.textContent = 'Page ' + inboxCurrentPage + ' / ' + inboxTotalPages + (remaining <= 0 ? ' (last page)' : '');
-        buildPageSelectOptions(pager);
-        if (pager.pageSelect) pager.pageSelect.disabled = false;
+      inboxPagers().forEach(function (pager) {
+        if (pager && pager.update) pager.update();
       });
     }
 
@@ -1257,51 +1281,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     }
 
     function createInboxPager() {
-      var wrapper = document.createElement('div');
-      wrapper.className = 'pagination-controls';
-
-      var prev = document.createElement('button');
-      prev.type = 'button';
-      prev.className = 'load-more-btn';
-      prev.textContent = 'Prev';
-
-      var pageInfo = document.createElement('span');
-      pageInfo.className = 'pagination-page';
-      pageInfo.textContent = 'Page 1 / 1';
-
-      var select = document.createElement('select');
-      select.className = 'page-select';
-      select.title = 'Go to page';
-
-      var next = document.createElement('button');
-      next.type = 'button';
-      next.className = 'load-more-btn';
-      next.textContent = 'Next';
-
-      prev.addEventListener('click', function () {
-        goToInboxPage(inboxCurrentPage - 1);
-      });
-      next.addEventListener('click', function () {
-        goToInboxPage(inboxCurrentPage + 1);
-      });
-      select.onchange = function () {
-        var n = parseInt(select.value, 10);
-        if (Number.isNaN(n)) return;
-        goToInboxPage(n);
-      };
-
-      wrapper.appendChild(prev);
-      wrapper.appendChild(pageInfo);
-      wrapper.appendChild(select);
-      wrapper.appendChild(next);
-
-      return {
-        root: wrapper,
-        prevBtn: prev,
-        pageInfo: pageInfo,
-        pageSelect: select,
-        nextBtn: next,
-      };
+      return createPageNavPager(goToInboxPage, function () { return inboxCurrentPage; }, function () { return inboxTotalPages || 1; });
     }
 
     function appendInboxRows(rows, startIndex) {
