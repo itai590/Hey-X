@@ -1172,6 +1172,8 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         nextBtn.disabled = cur >= total;
         nextBtn.textContent = cur >= total ? '—' : String(cur + 1);
         lastBtn.disabled = cur >= total;
+        lastBtn.textContent = total > 1 ? 'Last ' + total : 'Last';
+        lastBtn.title = 'Go to page ' + total;
       }
 
       return {
