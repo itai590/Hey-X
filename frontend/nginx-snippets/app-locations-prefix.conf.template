@@ -6,6 +6,32 @@
         try_files $uri =404;
     }
 
+    location = %%PUBLIC_URL%%/api/openapi.yaml {
+        return 404;
+    }
+
+    location = %%PUBLIC_URL%%/api/docs {
+        return 404;
+    }
+
+    location ^~ %%PUBLIC_URL%%/api/docs/ {
+        return 404;
+    }
+
+    # Regex locations cannot use proxy_pass with a URI path; strip deploy basename then proxy.
+    location ~* ^%%PUBLIC_URL%%/api/training/.+/audio$ {
+        gzip off;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        rewrite ^%%PUBLIC_URL%%(.*)$ $1 break;
+        proxy_pass http://backend:5100;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     location %%PUBLIC_URL%%/api/ {
         proxy_pass http://backend:5100/api/;
         proxy_http_version 1.1;

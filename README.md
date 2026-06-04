@@ -142,6 +142,8 @@ If your site is reachable from the internet, set a secret on the **backend** so 
 When the variable is **set**, mutating routes require header `Authorization: Bearer <exact same string>`
 When it is **unset**, the server logs a warning and those routes stay open (convenient for local LAN dev).
 
+**LAN docs bypass (optional):** If `HEY_DOCS_ADMIN_TRUST_LAN=true`, clients whose **direct TCP connection** is from a private IPv4 LAN address (RFC1918 / link-local APIPA) may open `/api/docs`, `GET /api/openapi.yaml`, and `PUT /api/custom-head/clip/:label` **without** a Bearer header. Requests forwarded by a reverse proxy (public TCP peer) still need `HEY_ADMIN_TOKEN`. Same socket rule as `HEY_REQUIRE_HTTPS_TRUST_LAN` — not based on `X-Forwarded-For`.
+
 In the web UI, use the **lock** icon, enter the same value as `HEY_ADMIN_TOKEN` once per browser tab; it is kept in **session storage** until you close the tab. The dialog checks the token with `POST /api/auth/verify-admin` first — a wrong value shows an error and nothing is saved. Reads (`GET /api/config`, bark list, presence) stay unauthenticated so the dashboard still loads.
 
 ### Tuning
@@ -156,7 +158,8 @@ Use **Detection Settings** in the web app (gear icon) or edit `backend/config.js
 | `DETECTION_THRESHOLD`             | How many consecutive barks in a row before the app records/sends a grouped event (default **1**).                                                                                                                                                                                   |
 | `AGGREGATION_TIMER`               | How long a grouped bark “session” stays open; also used in the web UI to decide when the last RMS sample is “recent” for the status ring (seconds, default 60, range 10–300).                                                                                                       |
 | `MIC_MUTED`                       | If `true`, the microphone is off: **no** recording, **no** WAV files, **no** calls to the Python classifier. Default `false`. Changing it applies immediately and is persisted in `config.json`.                                                                                    |
-| `HEY_ADMIN_TOKEN` / `ADMIN_TOKEN` | **Backend env vars only** (not in `config.json`). When set, mutating APIs require `Authorization: Bearer` with the same secret; the web UI lock dialog verifies it via `POST /api/auth/verify-admin`. When unset, those routes stay open. See **Admin password** under Quick Start. |
+| `HEY_ADMIN_TOKEN` / `ADMIN_TOKEN` | **Backend env only**. SPA lock, Swagger/OpenAPI, messages/config/logs, clip upload, training WAV API, and `POST /api/custom-head/train`. |
+| `HEY_DOCS_ADMIN_TRUST_LAN` | Optional. If `true`, direct private-LAN TCP clients may use Swagger/OpenAPI and docs-gated clip upload without Bearer (see **LAN docs bypass** above). |
 | `CUSTOM_HEAD_ENABLED`             | If `true` **and** `backend/data/custom_model/head.json` exists, apply the trained embedding head. Default `false`.                                                                                                                                                                  |
 | `CUSTOM_HEAD_THRESHOLD`           | 0–1, probability threshold for the custom head (default **0.55**). Final bark if YAMNet says bark **or** custom probability ≥ this value.                                                                                                                                           |
 | `TRAINING_INBOX_ENABLED`          | If `true` (default), each classified event copies the WAV + metadata to `data/training_inbox/` and logs `clip_id=<UUID>` so you can promote it into training sets later. Set `false` on storage-constrained hosts if you only upload clips manually.                                |
@@ -182,7 +185,7 @@ When `TRAINING_INBOX_ENABLED=true`, each classified sound gets a `clip_id` and l
 1. Copy a `clip_id` from logs or `GET /api/presence`.
 2. Promote it to `bark` or `not_bark`:
 
-- Browser UI: `http://<server-ip>:5100/api/training/listen` (paste admin token there if `HEY_ADMIN_TOKEN` is set).
+- Browser UI: `http://<host>:5100/api/training/listen` (paste admin token there if `HEY_ADMIN_TOKEN` is set).
 
   ![Hey Sheldon WAV review UI](docs/training-listen-ui.png)
 
@@ -215,7 +218,7 @@ docker compose exec backend npm run inbox-train -- YOUR-UUID-HERE bark
 
 1. Train the custom head (if promote-only path was used):
 
-- Swagger docs: `http://<server-ip>:5100/api/docs/` → run `POST /api/custom-head/train`.
+- Swagger docs: `http://<host>:5100/api/docs/` → run `POST /api/custom-head/train`.
 - CLI: `cd backend && npm run train-head`.
 
 All paths use the same underlying training script (`train_custom_head.py`); only the trigger method changes.

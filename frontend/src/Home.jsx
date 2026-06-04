@@ -6,14 +6,18 @@ import {
 import useMediaQuery from '@mui/material/useMediaQuery';
 import SettingsIcon from '@mui/icons-material/Settings';
 import LockIcon from '@mui/icons-material/Lock';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
 import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import DeleteIcon from '@mui/icons-material/Delete';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import TerminalIcon from '@mui/icons-material/Terminal';
+import HeadphonesOutlinedIcon from '@mui/icons-material/HeadphonesOutlined';
 import ErrorBanner from './components/ErrorBanner';
+import BackendLogsDialog from './components/BackendLogsDialog';
 import useMessages from './hooks/useMessages';
 import useConfig from './hooks/useConfig';
-import { apiUrl } from './apiBase';
+import { apiUrl, trainingListenPageUrl } from './apiBase';
 import { apiFetch } from './apiClient';
 import { useAdminAuth } from './AdminAuthProvider';
 import { formatBarkTimestamp } from './formatDisplayTime';
@@ -57,7 +61,7 @@ const nearlyEquals = (a, b) => Math.abs(a - b) < 1e-6;
 export default function Home() {
   const { messages, error, reload: reloadMessages } = useMessages();
   const { config, loading: configLoading, updateConfig, reload: reloadConfig } = useConfig();
-  const { openAdminDialog } = useAdminAuth();
+  const { openAdminDialog, hasAdminSession } = useAdminAuth();
 
   const pendingConfigRef = useRef(null);
   const pendingDeleteRef = useRef(false);
@@ -87,9 +91,11 @@ export default function Home() {
   /** True when the latest clip is at/above the noise floor and its age is under AGGREGATION_TIMER (same as grouping window). */
   const [aboveNoiseFloor, setAboveNoiseFloor] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(false);
   /** 0 = mic/AI/signal, 1 = alert count + grouping window, 2 = browser tab title */
   const [settingsTab, setSettingsTab] = useState(0);
   const [selected, setSelected] = useState(new Set());
+  const [expandedMessages, setExpandedMessages] = useState(new Set());
   const [snack, setSnack] = useState({ open: false, message: '', severity: 'success' });
 
   // Local editable copies of config values (only committed on blur/change)
@@ -105,6 +111,8 @@ export default function Home() {
   /** CSS-only landscape queries miss some iOS Safari viewports; matchMedia is reliable. */
   const mqShortHeight = useMediaQuery('(max-height: 520px)', { noSsr: true });
   const mqLandscapeNarrow = useMediaQuery('(orientation: landscape) and (max-width: 960px)', { noSsr: true });
+  const isMobile = useMediaQuery('(max-width: 600px)', { noSsr: true });
+  const collapseMessages = !isMobile;
   /** Short but wide: landscape phones even when orientation / height media queries lie */
   const mqWideShort = useMediaQuery('(max-height: 560px) and (min-width: 480px)', { noSsr: true });
   const compactHeaderRow = mqLandscapeNarrow || mqWideShort;
@@ -378,6 +386,22 @@ export default function Home() {
     (a, b) => new Date(b.update_time || b.create_time) - new Date(a.update_time || a.create_time)
   );
 
+  const shouldCollapseMessage = useCallback((text) => {
+    if (typeof text !== 'string') return false;
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    return trimmed.length > 110 || trimmed.includes('| top5:') || trimmed.startsWith('rms=');
+  }, []);
+
+  const toggleMessageExpanded = useCallback((messageId) => {
+    setExpandedMessages((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) next.delete(messageId);
+      else next.add(messageId);
+      return next;
+    });
+  }, []);
+
   return (
     <Box
       className="fill"
@@ -432,8 +456,8 @@ export default function Home() {
         <Tooltip
           title={
             localMicMuted
-              ? 'Unmute: resume capture and detection (audio stays on device for local YAMNet analysis)'
-              : 'Mute: stop all mic capture, no audio is recorded or sent to the sound classifier'
+              ? 'Unmute'
+              : 'Mute'
           }
         >
           <IconButton
@@ -451,13 +475,36 @@ export default function Home() {
             {localMicMuted ? <MicOffIcon /> : <MicIcon />}
           </IconButton>
         </Tooltip>
-        <Tooltip title="Admin password (same value as HEY_ADMIN_TOKEN on the Pi). Required to save settings or delete barks when the server enforces it.">
-          <IconButton onClick={openAdminDialog} sx={{ color: 'white' }} aria-label="Enter admin password">
-            <LockIcon />
+        <Tooltip title={hasAdminSession ? 'Admin authenticated' : 'Admin locked'}>
+          <IconButton
+            onClick={openAdminDialog}
+            sx={{ color: hasAdminSession ? '#66bb6a' : 'white' }}
+            aria-label={hasAdminSession ? 'Admin authenticated' : 'Enter admin password'}
+          >
+            {hasAdminSession ? <LockOpenIcon /> : <LockIcon />}
           </IconButton>
         </Tooltip>
-        <Tooltip title="Settings — detection, alerts, and browser tab">
-          <IconButton onClick={() => setSettingsOpen((o) => !o)} sx={{ color: 'white' }}>
+        {hasAdminSession && (
+          <Tooltip title="Training review">
+            <IconButton
+              component="a"
+              href={trainingListenPageUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{ color: 'white' }}
+              aria-label="Open training WAV review"
+            >
+              <HeadphonesOutlinedIcon />
+            </IconButton>
+          </Tooltip>
+        )}
+        <Tooltip title="Backend logs">
+          <IconButton onClick={() => setLogsOpen(true)} sx={{ color: 'white' }} aria-label="Backend logs">
+            <TerminalIcon />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Settings">
+          <IconButton onClick={() => setSettingsOpen((o) => !o)} sx={{ color: 'white' }} aria-label="Open settings">
             <SettingsIcon />
           </IconButton>
         </Tooltip>
@@ -913,6 +960,27 @@ export default function Home() {
                     px: { xs: 3.5, sm: 5 },
                   }}
                 >
+                  {collapseMessages && shouldCollapseMessage(msg.text) && (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mb: 0.25 }}>
+                      <Button
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleMessageExpanded(msg.id);
+                        }}
+                        sx={{
+                          textTransform: 'none',
+                          minWidth: 0,
+                          px: 1,
+                          color: '#90caf9',
+                          fontSize: '0.72rem',
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        {expandedMessages.has(msg.id) ? 'Collapse' : 'Expand details'}
+                      </Button>
+                    </Box>
+                  )}
                   <Typography
                     component="div"
                     variant="body1"
@@ -933,6 +1001,14 @@ export default function Home() {
                       fontSize: { xs: '1rem', sm: '1.0625rem', md: '1.125rem' },
                       color: 'rgba(245, 235, 224, 0.88)',
                       mt: 0.5,
+                      ...(collapseMessages && shouldCollapseMessage(msg.text) && !expandedMessages.has(msg.id)
+                        ? {
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }
+                        : {}),
                     }}
                   >
                     {msg.text}
@@ -943,6 +1019,8 @@ export default function Home() {
           </ul>
         </Box>
       )}
+
+      <BackendLogsDialog open={logsOpen} onClose={() => setLogsOpen(false)} />
 
       <Snackbar
         open={snack.open}

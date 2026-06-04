@@ -34,4 +34,14 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS admin_login_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    logged_at TEXT NOT NULL,
+    username TEXT,
+    ip TEXT,
+    xff_first TEXT
+  );
+`);
+
 module.exports = db;

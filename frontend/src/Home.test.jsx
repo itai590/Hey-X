@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider } from '@mui/material/styles';
 import Home from './Home';
@@ -54,6 +54,10 @@ function renderHome() {
 }
 
 describe('Home UI', () => {
+  afterEach(() => {
+    sessionStorage.clear();
+  });
+
   beforeEach(() => {
     global.fetch = vi.fn(() =>
       Promise.resolve({
@@ -79,8 +83,30 @@ describe('Home UI', () => {
   test('exposes settings, lock, and mic controls', () => {
     renderHome();
     expect(screen.getByRole('button', { name: /enter admin password/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /backend logs/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /mute microphone|unmute microphone/i })).toBeInTheDocument();
-    expect(screen.getAllByRole('button').length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByRole('button').length).toBeGreaterThanOrEqual(4);
+    expect(screen.queryByRole('link', { name: /open training wav review/i })).not.toBeInTheDocument();
+  });
+
+  test('shows training WAV review link when admin token is in session', () => {
+    sessionStorage.setItem('hey-admin-token', 'test-admin-token');
+    renderHome();
+    const link = screen.getByRole('link', { name: /open training wav review/i });
+    expect(link).toHaveAttribute('href', expect.stringContaining('/api/training/listen'));
+    expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  test('refreshes lock state when the tab becomes visible', async () => {
+    renderHome();
+    expect(screen.getByRole('button', { name: /enter admin password/i })).toBeInTheDocument();
+
+    sessionStorage.setItem('hey-admin-token', 'test-admin-token');
+    fireEvent(document, new Event('visibilitychange'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /admin authenticated/i })).toBeInTheDocument();
+    });
   });
 
   test('sets document title from dog name in config', () => {
@@ -100,9 +126,7 @@ describe('Home UI', () => {
   test('opens settings panel with Detection / Alerts / Browser tabs', async () => {
     const user = userEvent.setup();
     renderHome();
-    const buttons = screen.getAllByRole('button');
-    // Top bar order: mic, lock, settings gear
-    await user.click(buttons[2]);
+    await user.click(screen.getByRole('button', { name: /^open settings$/i }));
     expect(screen.getByRole('tab', { name: /^Detection$/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /^Alerts$/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /^Browser$/i })).toBeInTheDocument();

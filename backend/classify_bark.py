@@ -36,6 +36,37 @@ BARK_CLASSES = frozenset([
     "Yip",
 ])
 
+# YAMNet often spreads mass (~0.14–0.16) across Animal / Dog / Howl / Growl; strict bark_threshold
+# then misses short barks. These rules add recall (tunable via env).
+AMBIGUOUS_TOP_CLASSES = frozenset(["Animal", "Domestic animals, pets"])
+DOG_TOP_MIN_BARK_SCORE = float(os.environ.get("YAMNET_DOG_TOP_MIN_BARK", "0.10"))
+AMBIGUOUS_MIN_BARK_SCORE = float(os.environ.get("YAMNET_AMBIG_MIN_BARK", "0.06"))
+AMBIGUOUS_TOP_RATIO = float(os.environ.get("YAMNET_AMBIG_TOP_RATIO", "0.50"))
+
+
+def compute_yamnet_is_bark(labels, bark_score: float, bark_threshold: float) -> tuple[bool, bool]:
+    """Returns (yamnet_is_bark, used_relaxed_rule)."""
+    if bark_score >= bark_threshold:
+        return True, False
+    if not labels:
+        return False, False
+    try:
+        c0 = labels[0]["class"]
+        s0 = float(labels[0]["score"])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return False, False
+    if c0 == "Dog" and bark_score >= DOG_TOP_MIN_BARK_SCORE:
+        return True, True
+    if (
+        c0 in AMBIGUOUS_TOP_CLASSES
+        and s0 > 0
+        and bark_score >= AMBIGUOUS_MIN_BARK_SCORE
+        and bark_score >= AMBIGUOUS_TOP_RATIO * s0
+    ):
+        return True, True
+    return False, False
+
+
 # AudioSet class count and YAMNet embedding size (standard TF Hub export)
 NUM_AUDIOSET_CLASSES = 521
 EMBEDDING_DIM = 1024
@@ -432,7 +463,7 @@ def classify(
     out = yamnet_forward(interpreter, class_names, waveform, top_k=top_k)
     labels = out["labels"]
     bark_score = out["bark_score"]
-    yamnet_is_bark = bark_score >= bark_threshold
+    yamnet_is_bark, yamnet_relaxed = compute_yamnet_is_bark(labels, float(bark_score), float(bark_threshold))
 
     custom_prob = None
     custom_used = False
@@ -464,6 +495,7 @@ def classify(
         "labels": labels,
         "bark_score": bark_score,
         "yamnet_is_bark": yamnet_is_bark,
+        "yamnet_relaxed_bark": yamnet_relaxed,
         "is_bark": is_bark,
     }
     if custom_prob is not None:

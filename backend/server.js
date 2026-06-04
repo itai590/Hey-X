@@ -57,8 +57,11 @@ const config = {
   /** Copy each classified clip to data/training_inbox/ with a clip_id (UUID) for logs + promote-to-training. */
   TRAINING_INBOX_ENABLED: true,
   /** Max WAV files kept in training_inbox (oldest removed first). */
-  TRAINING_INBOX_MAX_FILES: 80,
+  TRAINING_INBOX_MAX_FILES: 1800,
 };
+
+/** Upper bound for TRAINING_INBOX_MAX_FILES (API + runtime clamp). */
+const TRAINING_INBOX_MAX_FILES_CAP = 1800;
 
 function loadConfig() {
   if (fs.existsSync(configPath)) {
@@ -107,13 +110,17 @@ seedConfigFromTemplateIfNeeded();
 loadConfig();
 console.log("Config loaded:", JSON.stringify(config));
 
+function trimmedDogName() {
+  return String(config.DOG_NAME || '').trim();
+}
+
 function siteHeyLabel() {
-  const n = String(config.DOG_NAME || '').trim();
+  const n = trimmedDogName();
   return n ? `Hey ${n}` : 'Hey';
 }
 
 function siteApiTitle() {
-  const n = String(config.DOG_NAME || '').trim();
+  const n = trimmedDogName();
   return n ? `Hey ${n} API` : 'Hey API';
 }
 
@@ -151,7 +158,10 @@ function buildCustomHeadOpts() {
 
 function tryCaptureClip(wavPath, meta) {
   if (!config.TRAINING_INBOX_ENABLED) return null;
-  const maxFiles = Math.min(500, Math.max(10, Number(config.TRAINING_INBOX_MAX_FILES) || 80));
+  const maxFiles = Math.min(
+    TRAINING_INBOX_MAX_FILES_CAP,
+    Math.max(10, Number(config.TRAINING_INBOX_MAX_FILES) || 1800),
+  );
   try {
     return trainingInbox.captureClip({
       backendRoot: __dirname,
@@ -165,41 +175,365 @@ function tryCaptureClip(wavPath, meta) {
   }
 }
 
-// === Optional admin token (Bearer) for mutating APIs ===
-const ADMIN_TOKEN_RAW = (process.env.HEY_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '').trim();
-const ADMIN_TOKEN_ACTIVE = ADMIN_TOKEN_RAW.length > 0;
-
-function timingSafeEqualStrings(a, b) {
-  if (typeof a !== 'string' || typeof b !== 'string') return false;
-  const bufa = Buffer.from(a, 'utf8');
-  const bufb = Buffer.from(b, 'utf8');
-  if (bufa.length !== bufb.length) return false;
-  return crypto.timingSafeEqual(bufa, bufb);
+// --- Admin hardening helpers (HTTPS gate, verify-admin throttle, credential match, docs LAN bypass; in-memory state) ---
+function parseBoolEnv(raw, fallback) {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (s === '' || s === 'unset') return fallback;
+  if (s === '1' || s === 'true' || s === 'yes' || s === 'on') return true;
+  if (s === '0' || s === 'false' || s === 'no' || s === 'off') return false;
+  return fallback;
 }
 
-function getBearerToken(req) {
+function parsePositiveInt(raw, fallback) {
+  const n = parseInt(String(raw ?? '').trim(), 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function trustProxyExpressValue(raw) {
+  const s = String(raw ?? '').trim();
+  if (s === '') return undefined;
+  if (s === 'true' || s === '1' || s === 'yes') return true;
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  return s;
+}
+
+function isHttpsRequest(req) {
+  if (req.secure) return true;
+  const first = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  return first === 'https';
+}
+
+function configureTrustProxy(app, { heyRequireHttps, trustProxyRaw }) {
+  const fromEnv = trustProxyExpressValue(trustProxyRaw);
+  if (fromEnv !== undefined) {
+    app.set('trust proxy', fromEnv);
+    return;
+  }
+  if (heyRequireHttps) {
+    app.set('trust proxy', 1);
+  }
+}
+
+function isProbablyLoopback(req) {
+  const ip = String(req.ip || req.socket?.remoteAddress || '');
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
+function directTcpRemoteAddress(req) {
+  return String(req.socket?.remoteAddress || req.connection?.remoteAddress || '');
+}
+
+function normalizeToIpv4String(addr) {
+  const s = String(addr || '');
+  const m = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(s.trim());
+  return m ? m[1] : s;
+}
+
+function isPrivateLanIpv4Address(addr) {
+  const v4 = normalizeToIpv4String(addr);
+  const parts = v4.split('.');
+  if (parts.length !== 4) return false;
+  const nums = parts.map((p) => parseInt(p, 10));
+  if (nums.some((n) => !Number.isFinite(n) || n < 0 || n > 255)) return false;
+  const [ai, bi] = nums;
+  if (ai === 10) return true;
+  if (ai === 172 && bi >= 16 && bi <= 31) return true;
+  if (ai === 192 && bi === 168) return true;
+  if (ai === 169 && bi === 254) return true;
+  return false;
+}
+
+function createHttpsMiddleware(heyRequireHttps, { trustLoopback = true, trustLan = false } = {}) {
+  if (!heyRequireHttps) return function httpsSkip(_req, _res, next) {
+    next();
+  };
+  return function requireHttps(req, res, next) {
+    if (trustLoopback && isProbablyLoopback(req)) return next();
+    if (trustLan && isPrivateLanIpv4Address(directTcpRemoteAddress(req))) return next();
+    if (isHttpsRequest(req)) return next();
+    return res.status(403).json({ error: 'HTTPS required', code: 'HTTPS_REQUIRED' });
+  };
+}
+
+function createVerifyAdminGuard(options) {
+  const windowMs = options.windowMs;
+  const maxAttempts = options.maxAttempts;
+  const lockoutAfterFails = options.lockoutAfterFails;
+  const lockoutBaseMs = options.lockoutBaseMs;
+  const lockoutMaxMs = options.lockoutMaxMs;
+
+  /** @type Map<string, { hits: number[], consecFail: number, lockedUntil: number }> */
+  const byKey = new Map();
+
+  function getState(key) {
+    let st = byKey.get(key);
+    if (!st) {
+      st = { hits: [], consecFail: 0, lockedUntil: 0 };
+      byKey.set(key, st);
+    }
+    return st;
+  }
+
+  function pruneHits(st, now) {
+    st.hits = st.hits.filter((t) => now - t < windowMs);
+  }
+
+  function checkAllowed(key, now = Date.now()) {
+    const st = getState(key);
+    pruneHits(st, now);
+    if (st.lockedUntil > now) {
+      return {
+        ok: false,
+        retryAfterSec: Math.ceil((st.lockedUntil - now) / 1000),
+        reason: 'locked_out',
+      };
+    }
+    if (st.hits.length >= maxAttempts) {
+      return { ok: false, retryAfterSec: Math.ceil(windowMs / 1000), reason: 'rate_limited' };
+    }
+    st.hits.push(now);
+    return { ok: true };
+  }
+
+  function recordFailure(key, now = Date.now()) {
+    const st = getState(key);
+    st.consecFail += 1;
+    if (st.consecFail >= lockoutAfterFails) {
+      const power = Math.max(0, st.consecFail - lockoutAfterFails);
+      const ms = Math.min(lockoutMaxMs, lockoutBaseMs * Math.pow(2, power));
+      st.lockedUntil = now + ms;
+    }
+  }
+
+  function recordSuccess(key) {
+    const st = getState(key);
+    st.consecFail = 0;
+    st.lockedUntil = 0;
+    st.hits = [];
+  }
+
+  return { checkAllowed, recordFailure, recordSuccess };
+}
+
+function xForwardedForFirst(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff !== 'string' || !xff.trim()) return '';
+  return xff.split(',')[0].trim();
+}
+
+/** Console-safe attribution behind reverse proxies (nginx sets X-Forwarded-For). */
+function auditClientDescription(req) {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  const directTcp = req.socket?.remoteAddress || '';
+  const xff = xForwardedForFirst(req);
+  const safeIp = typeof ip === 'string' ? ip : String(ip);
+  const parts = [`ip=${safeIp}`];
+  if (xff) parts.push(`xff_first=${xff}`);
+  if (directTcp && String(directTcp) !== safeIp) parts.push(`direct_tcp=${directTcp}`);
+  return parts.join(' ');
+}
+
+function auditMutatingRoute(req, res, next) {
+  const start = Date.now();
+  const clientLine = auditClientDescription(req);
+  const urlPath = req.originalUrl || req.url || '';
+  res.on('finish', () => {
+    const durationMs = Date.now() - start;
+    console.log(
+      `[audit-admin] ${req.method} ${urlPath} status=${res.statusCode} duration_ms=${durationMs} ${clientLine}`,
+    );
+  });
+  next();
+}
+
+/** Compare UTF-8 strings via SHA-256 digests so length is not leaked via early exit. */
+function timingSafeEqualStrings(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const ha = crypto.createHash('sha256').update(a, 'utf8').digest();
+  const hb = crypto.createHash('sha256').update(b, 'utf8').digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+function adminCredentialMatches(candidate, primaryRaw) {
+  if (!candidate || !primaryRaw) return false;
+  return timingSafeEqualStrings(primaryRaw, candidate);
+}
+
+function shouldBypassDocsAdminForTrustedLan(req, { trustLan, adminActive }) {
+  if (!trustLan || !adminActive) return false;
+  return isPrivateLanIpv4Address(directTcpRemoteAddress(req));
+}
+
+// === Admin token (Bearer) — single secret for SPA, training WAV API, Swagger, etc. ===
+const ADMIN_TOKEN_RAW = (process.env.HEY_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '').trim();
+
+const MAIN_ADMIN_ACTIVE = ADMIN_TOKEN_RAW.length > 0;
+const ANY_ADMIN_ACTIVE = MAIN_ADMIN_ACTIVE;
+/** When true, `/api/docs`, `/api/openapi.yaml`, and docs-gated clip upload skip Bearer for direct private-LAN IPv4 TCP peers only. */
+const HEY_DOCS_ADMIN_TRUST_LAN = parseBoolEnv(process.env.HEY_DOCS_ADMIN_TRUST_LAN, false);
+
+/** Always `main`: single admin secret (`HEY_ADMIN_TOKEN`); optional body.audience is ignored. */
+function verifyAudienceFromBody(_body) {
+  return 'main';
+}
+
+function audienceAuthActive(_audience) {
+  return MAIN_ADMIN_ACTIVE;
+}
+
+function candidateMatchesAudience(candidate, _audience) {
+  return adminCredentialMatches(candidate, ADMIN_TOKEN_RAW);
+}
+
+/** RFC 6750 Bearer token only — use for mutating APIs and verify-admin Bearer fallback. */
+function getBearerTokenStrict(req) {
   const h = req.headers.authorization;
   if (!h || typeof h !== 'string') return '';
   const m = /^Bearer\s+(.+)$/i.exec(h.trim());
   return m ? m[1].trim() : '';
 }
 
-function requireAdmin(req, res, next) {
-  if (!ADMIN_TOKEN_ACTIVE) return next();
-  const sent = getBearerToken(req);
-  if (!sent || !timingSafeEqualStrings(ADMIN_TOKEN_RAW, sent)) {
-    res.set('WWW-Authenticate', 'Bearer realm="hey-admin"');
+/**
+ * Bearer first; bare Authorization value only for Swagger/OpenAPI (`requireDocsAdmin`) compatibility.
+ */
+function getBearerTokenAllowBare(req) {
+  const strict = getBearerTokenStrict(req);
+  if (strict) return strict;
+  const h = req.headers.authorization;
+  if (!h || typeof h !== 'string') return '';
+  return h.trim();
+}
+
+function clientKeyForGuards(req) {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  return typeof ip === 'string' ? ip : String(ip);
+}
+
+const verifyAdminGuard = createVerifyAdminGuard({
+  windowMs: parsePositiveInt(process.env.HEY_VERIFY_ADMIN_RL_WINDOW_MS, 60_000),
+  maxAttempts: parsePositiveInt(process.env.HEY_VERIFY_ADMIN_RL_MAX, 45),
+  lockoutAfterFails: parsePositiveInt(process.env.HEY_VERIFY_ADMIN_LOCKOUT_AFTER_FAILS, 10),
+  lockoutBaseMs: parsePositiveInt(process.env.HEY_VERIFY_ADMIN_LOCKOUT_BASE_MS, 120_000),
+  lockoutMaxMs: parsePositiveInt(process.env.HEY_VERIFY_ADMIN_LOCKOUT_MAX_MS, 3600_000),
+});
+
+/** Failed Bearer attempts on mutating routes (high maxAttempts — lockout via consec. failures). */
+const mutatingAdminGuard = createVerifyAdminGuard({
+  windowMs: parsePositiveInt(process.env.HEY_MAIN_ADMIN_RL_WINDOW_MS, 60_000),
+  maxAttempts: parsePositiveInt(process.env.HEY_MAIN_ADMIN_RL_MAX, 1_000_000),
+  lockoutAfterFails: parsePositiveInt(process.env.HEY_MAIN_ADMIN_LOCKOUT_AFTER_FAILS, 10),
+  lockoutBaseMs: parsePositiveInt(process.env.HEY_MAIN_ADMIN_LOCKOUT_BASE_MS, 120_000),
+  lockoutMaxMs: parsePositiveInt(process.env.HEY_MAIN_ADMIN_LOCKOUT_MAX_MS, 3600_000),
+});
+
+const ADMIN_LOGIN_USERNAME_MAX = 128;
+const XFF_FIRST_MAX = 256;
+
+function insertAdminLoginAudit(req, usernameRaw) {
+  const username = typeof usernameRaw === 'string' ? usernameRaw.trim().slice(0, ADMIN_LOGIN_USERNAME_MAX) : '';
+  const loggedAt = new Date().toISOString();
+  const ip = String(req.ip || req.socket?.remoteAddress || '');
+  const xf = xForwardedForFirst(req);
+  const xffFirst = xf ? xf.slice(0, XFF_FIRST_MAX) : null;
+  try {
+    db.prepare(
+      'INSERT INTO admin_login_audit (logged_at, username, ip, xff_first) VALUES (?, ?, ?, ?)',
+    ).run(loggedAt, username || null, ip || null, xffFirst);
+  } catch (e) {
+    console.error('admin_login_audit insert failed:', e.message);
+  }
+}
+
+/** Rate-limit / lockout middleware for POST /api/auth/verify-admin only */
+function throttleVerifyAdmin(req, res, next) {
+  const audience = verifyAudienceFromBody(req.body);
+  if (!audienceAuthActive(audience)) return next();
+  const key = `${clientKeyForGuards(req)}|${audience}`;
+  const check = verifyAdminGuard.checkAllowed(key);
+  if (check.ok) return next();
+  if (typeof check.retryAfterSec === 'number' && check.retryAfterSec > 0) {
+    res.set('Retry-After', String(check.retryAfterSec));
+  }
+  const payload = check.reason === 'locked_out'
+    ? { error: 'Too many failed attempts — try again later.', code: 'VERIFY_ADMIN_LOCKED' }
+    : { error: 'Too many verify-admin requests — try again later.', code: 'VERIFY_ADMIN_RATE_LIMITED' };
+  return res.status(429).json(payload);
+}
+
+function requireMainAdmin(req, res, next) {
+  if (!MAIN_ADMIN_ACTIVE) {
+    res.set('WWW-Authenticate', 'Bearer realm="hey-main-admin"');
+    return res.status(401).json({
+      error: 'Unauthorized',
+      needsAdminAuth: true,
+      code: 'ADMIN_TOKEN_NOT_SET',
+      detail: 'Set HEY_ADMIN_TOKEN on the server and restart.',
+    });
+  }
+  const sent = getBearerTokenStrict(req);
+  const key = `${clientKeyForGuards(req)}|main-admin`;
+  if (!sent || !candidateMatchesAudience(sent, 'main')) {
+    const check = mutatingAdminGuard.checkAllowed(key);
+    if (!check.ok) {
+      if (typeof check.retryAfterSec === 'number' && check.retryAfterSec > 0) {
+        res.set('Retry-After', String(check.retryAfterSec));
+      }
+      const payload = check.reason === 'locked_out'
+        ? { error: 'Too many failed auth attempts — try again later.', code: 'MAIN_ADMIN_AUTH_LOCKED' }
+        : { error: 'Too many admin auth attempts — try again later.', code: 'MAIN_ADMIN_AUTH_RATE_LIMITED' };
+      return res.status(429).json(payload);
+    }
+    mutatingAdminGuard.recordFailure(key);
+    res.set('WWW-Authenticate', 'Bearer realm="hey-main-admin"');
+    return res.status(401).json({ error: 'Unauthorized', needsAdminAuth: true });
+  }
+  mutatingAdminGuard.recordSuccess(key);
+  next();
+}
+
+/**
+ * Swagger, OpenAPI YAML, and docs-gated clip upload — requires HEY_ADMIN_TOKEN when set,
+ * unless `HEY_DOCS_ADMIN_TRUST_LAN` and the TCP peer is private LAN (see `shouldBypassDocsAdminForTrustedLan`).
+ */
+function requireDocsAdmin(req, res, next) {
+  if (!MAIN_ADMIN_ACTIVE) {
+    res.set('WWW-Authenticate', 'Bearer realm="hey-main-admin"');
+    return res.status(401).json({
+      error: 'Unauthorized',
+      needsAdminAuth: true,
+      code: 'ADMIN_TOKEN_NOT_SET',
+      detail: 'Set HEY_ADMIN_TOKEN on the server and restart.',
+    });
+  }
+
+  if (
+    shouldBypassDocsAdminForTrustedLan(req, {
+      trustLan: HEY_DOCS_ADMIN_TRUST_LAN,
+      adminActive: MAIN_ADMIN_ACTIVE,
+    })
+  ) {
+    return next();
+  }
+
+  const sent = getBearerTokenAllowBare(req);
+  if (!sent || !adminCredentialMatches(sent, ADMIN_TOKEN_RAW)) {
+    res.set('WWW-Authenticate', 'Bearer realm="hey-main-admin"');
     return res.status(401).json({ error: 'Unauthorized', needsAdminAuth: true });
   }
   next();
 }
 
-if (!ADMIN_TOKEN_ACTIVE) {
-  console.warn(
-    '[security] HEY_ADMIN_TOKEN is unset — anyone who can reach this server can change config or delete messages. Set the env var to require a password.',
+if (!ANY_ADMIN_ACTIVE) {
+  console.error(
+    '[security] HEY_ADMIN_TOKEN is not set — admin APIs, training routes, and docs will return 401 until you configure HEY_ADMIN_TOKEN and restart.',
   );
 } else {
-  console.log('[security] HEY_ADMIN_TOKEN is set — mutating API routes require Authorization: Bearer …');
+  console.log('[security] HEY_ADMIN_TOKEN is set — mutating APIs + training WAV routes require Authorization: Bearer …');
+  if (HEY_DOCS_ADMIN_TRUST_LAN) {
+    console.log(
+      '[security] HEY_DOCS_ADMIN_TRUST_LAN=true — docs/OpenAPI + docs-gated clip upload skip Bearer for direct private-LAN IPv4 TCP peers',
+    );
+  }
 }
 hey.setAggrTime(config.AGGREGATION_TIMER);
 
@@ -259,8 +593,114 @@ function computeRms(wavPath) {
   return count > 0 ? Math.sqrt(sumSq / count) : 0;
 }
 
+function safeUnlinkMicClip(wavPath) {
+  if (!HEY_UNLINK_MIC_CLIP_AFTER_PROCESS) return;
+  try {
+    fs.unlinkSync(wavPath);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/**
+ * Classify clip (or AI-off path), update lastClassified / detections, capture training inbox.
+ * Caller sets lastRms* / lastSoundTime; this handles unlink when HEY_UNLINK_MIC_CLIP_AFTER_PROCESS.
+ */
+async function processDetectedWav(wavPath, rms) {
+  try {
+    if (config.AI_DETECTION_ENABLED) {
+      const result = await classifier.classify(wavPath);
+      const topLabel = result.labels?.[0]?.class || '?';
+      const topScore = result.labels?.[0]?.score || 0;
+
+      const top5 = (result.labels || [])
+        .slice(0, 5)
+        .map((l) => `${l.class}=${l.score}`)
+        .join(' ');
+      const errPart = result.error ? ` error=${result.error}` : '';
+      const chPart =
+        result.custom_head_used && typeof result.custom_head_score === 'number'
+          ? ` custom_head=${result.custom_head_score}`
+          : '';
+      const relaxedPart = result.yamnet_relaxed_bark ? ' yamnet_relaxed_bark=true' : '';
+      const classifyLogLine =
+        `rms=${rms.toFixed(4)} classified: ${topLabel} (${topScore}) ` +
+        `bark_score=${result.bark_score} yamnet_is_bark=${result.yamnet_is_bark ?? false} is_bark=${result.is_bark ?? false}` +
+        `${relaxedPart}${chPart} | top5: ${top5 || '—'}${errPart}`;
+
+      const meta = {
+        rms,
+        topLabel,
+        topScore,
+        barkScore: result.bark_score,
+        yamnetIsBark: result.yamnet_is_bark,
+        yamnetRelaxedBark: !!result.yamnet_relaxed_bark,
+        isBark: result.is_bark,
+        customHeadScore: result.custom_head_score,
+        customHeadUsed: result.custom_head_used,
+        top5: (result.labels || []).slice(0, 5).map((l) => ({ class: l.class, score: l.score })),
+        classifyError: result.error || null,
+        classifyLogLine,
+      };
+      const clipId = tryCaptureClip(wavPath, meta);
+
+      lastClassified = {
+        topLabel,
+        topScore,
+        barkScore: result.bark_score ?? 0,
+        isBark: !!result.is_bark,
+        yamnetIsBark: !!result.yamnet_is_bark,
+        yamnetRelaxedBark: !!result.yamnet_relaxed_bark,
+        customHeadScore: result.custom_head_score,
+        customHeadUsed: !!result.custom_head_used,
+        clipId: clipId || undefined,
+      };
+
+      const idPart = clipId ? ` clip_id=${clipId}` : '';
+      console.log(`${classifyLogLine}${idPart}`);
+
+      if (result.is_bark && ++detections >= config.DETECTION_THRESHOLD) {
+        hey.send();
+      }
+    } else {
+      const aiOffLogLine = `rms=${rms.toFixed(4)} (AI off, skipping classification)`;
+      const clipId = tryCaptureClip(wavPath, { rms, aiOff: true, classifyLogLine: aiOffLogLine });
+      lastClassified = {
+        topLabel: '—',
+        topScore: 0,
+        barkScore: 0,
+        isBark: false,
+        aiOff: true,
+        clipId: clipId || undefined,
+      };
+      const idPart = clipId ? ` clip_id=${clipId}` : '';
+      console.log(`${aiOffLogLine}${idPart}`);
+      if (++detections >= config.DETECTION_THRESHOLD) {
+        hey.send();
+      }
+    }
+  } catch (err) {
+    console.error('Classification error:', err.message);
+    let cid = null;
+    const classifyErrorLogLine =
+      `rms=${rms.toFixed(4)} classification error: ${String(err.message || err)}`;
+    if (config.TRAINING_INBOX_ENABLED && fs.existsSync(wavPath)) {
+      cid = tryCaptureClip(wavPath, {
+        rms,
+        nodeClassifyError: String(err.message || err),
+        classifyLogLine: classifyErrorLogLine,
+      });
+    }
+    if (cid) {
+      console.warn(`clip_id=${cid} (classification threw; kept in training inbox for labeling)`);
+    }
+  } finally {
+    safeUnlinkMicClip(wavPath);
+  }
+}
+
 hey.on('reset', () => {
-  console.log("Resetting detections");
+  console.log('Resetting detections');
   detections = 0;
 });
 
@@ -294,102 +734,13 @@ soundDetector.on('detected', async ({ wavPath }) => {
   if (rms < config.MIN_RMS_AMPLITUDE) {
     lastRmsAboveFloor = false;
     console.warn(
-      `rms=${rms.toFixed(4)} below MIN_RMS_AMPLITUDE (${config.MIN_RMS_AMPLITUDE}), skipping classification`
+      `rms=${rms.toFixed(4)} below MIN_RMS_AMPLITUDE (${config.MIN_RMS_AMPLITUDE}), skipping classification`,
     );
-    if (HEY_UNLINK_MIC_CLIP_AFTER_PROCESS) {
-      try { fs.unlinkSync(wavPath); } catch (_) { /* ignore */ }
-    }
+    safeUnlinkMicClip(wavPath);
     return;
   }
   lastRmsAboveFloor = true;
-
-  try {
-    if (config.AI_DETECTION_ENABLED) {
-      const result = await classifier.classify(wavPath);
-      const topLabel = result.labels?.[0]?.class || '?';
-      const topScore = result.labels?.[0]?.score || 0;
-
-      const meta = {
-        rms,
-        topLabel,
-        topScore,
-        barkScore: result.bark_score,
-        yamnetIsBark: result.yamnet_is_bark,
-        isBark: result.is_bark,
-        customHeadScore: result.custom_head_score,
-        customHeadUsed: result.custom_head_used,
-        top5: (result.labels || []).slice(0, 5).map((l) => ({ class: l.class, score: l.score })),
-        classifyError: result.error || null,
-      };
-      const clipId = tryCaptureClip(wavPath, meta);
-
-      lastClassified = {
-        topLabel,
-        topScore,
-        barkScore: result.bark_score ?? 0,
-        isBark: !!result.is_bark,
-        yamnetIsBark: !!result.yamnet_is_bark,
-        customHeadScore: result.custom_head_score,
-        customHeadUsed: !!result.custom_head_used,
-        clipId: clipId || undefined,
-      };
-
-      const top5 = (result.labels || [])
-        .slice(0, 5)
-        .map((l) => `${l.class}=${l.score}`)
-        .join(' ');
-      const errPart = result.error ? ` error=${result.error}` : '';
-      const chPart =
-        result.custom_head_used && typeof result.custom_head_score === 'number'
-          ? ` custom_head=${result.custom_head_score}`
-          : '';
-      const idPart = clipId ? ` clip_id=${clipId}` : '';
-      console.log(
-        `rms=${rms.toFixed(4)} classified: ${topLabel} (${topScore}) ` +
-        `bark_score=${result.bark_score} yamnet_is_bark=${result.yamnet_is_bark ?? false} is_bark=${result.is_bark ?? false}` +
-        `${chPart} | top5: ${top5 || '—'}${errPart}${idPart}`
-      );
-
-      if (result.is_bark) {
-        if (++detections >= config.DETECTION_THRESHOLD) {
-          hey.send();
-        }
-      }
-    } else {
-      const clipId = tryCaptureClip(wavPath, { rms, aiOff: true });
-      lastClassified = {
-        topLabel: '—',
-        topScore: 0,
-        barkScore: 0,
-        isBark: false,
-        aiOff: true,
-        clipId: clipId || undefined,
-      };
-      const idPart = clipId ? ` clip_id=${clipId}` : '';
-      console.log(
-        `rms=${rms.toFixed(4)} (AI off, skipping classification)${idPart}`
-      );
-      if (++detections >= config.DETECTION_THRESHOLD) {
-        hey.send();
-      }
-    }
-  } catch (err) {
-    console.error("Classification error:", err.message);
-    let cid = null;
-    if (config.TRAINING_INBOX_ENABLED && fs.existsSync(wavPath)) {
-      cid = tryCaptureClip(wavPath, {
-        rms,
-        nodeClassifyError: String(err.message || err),
-      });
-    }
-    if (cid) {
-      console.warn(`clip_id=${cid} (classification threw; kept in training inbox for labeling)`);
-    }
-  } finally {
-    if (HEY_UNLINK_MIC_CLIP_AFTER_PROCESS) {
-      try { fs.unlinkSync(wavPath); } catch (_) { /* ignore */ }
-    }
-  }
+  await processDetectedWav(wavPath, rms);
 });
 
 // === PRESENCE HEARTBEAT ===
@@ -401,6 +752,30 @@ syncHey();
 // === EXPRESS SERVER SETUP ===
 const app = express();
 const PORT = 5100;
+
+const HEY_REQUIRE_HTTPS = parseBoolEnv(process.env.HEY_REQUIRE_HTTPS, false);
+const HEY_REQUIRE_HTTPS_TRUST_LOOPBACK = parseBoolEnv(
+  process.env.HEY_REQUIRE_HTTPS_TRUST_LOOPBACK,
+  true,
+);
+const HEY_REQUIRE_HTTPS_TRUST_LAN = parseBoolEnv(process.env.HEY_REQUIRE_HTTPS_TRUST_LAN, false);
+configureTrustProxy(app, {
+  heyRequireHttps: HEY_REQUIRE_HTTPS,
+  trustProxyRaw: process.env.HEY_TRUST_PROXY,
+});
+app.use(
+  createHttpsMiddleware(HEY_REQUIRE_HTTPS, {
+    trustLoopback: HEY_REQUIRE_HTTPS_TRUST_LOOPBACK,
+    trustLan: HEY_REQUIRE_HTTPS_TRUST_LAN,
+  }),
+);
+if (HEY_REQUIRE_HTTPS) {
+  const bits = [];
+  if (HEY_REQUIRE_HTTPS_TRUST_LOOPBACK) bits.push('localhost HTTP exempt for health checks');
+  if (HEY_REQUIRE_HTTPS_TRUST_LAN) bits.push('private-LAN IPv4 (RFC1918 / APIPA) HTTP exempt on TCP peer');
+  const loopNote = bits.length ? ` — ${bits.join('; ')}` : '';
+  console.log('[security] HTTPS-only mode for API requests' + loopNote);
+}
 
 /** CORS: explicit list wins; else https:// + apex/www from PRIMARY_DOMAIN (same hostname as nginx). */
 function parseCorsOrigins() {
@@ -420,10 +795,21 @@ function parseCorsOrigins() {
 }
 const ALLOWED_ORIGINS = parseCorsOrigins();
 
+/** Dev convenience: localhost / 127.0.0.1 / RFC1918 192.168.x.y with valid octets only. */
+function corsAllowsDevLanOrigin(origin) {
+  if (!origin || typeof origin !== 'string') return false;
+  if (/^https?:\/\/localhost(?::\d+)?$/i.test(origin)) return true;
+  if (/^https?:\/\/127\.0\.0\.1(?::\d+)?$/i.test(origin)) return true;
+  const m = /^https?:\/\/192\.168\.(\d{1,3})\.(\d{1,3})(?::\d+)?$/i.exec(origin);
+  if (!m) return false;
+  const o2 = parseInt(m[1], 10);
+  const o3 = parseInt(m[2], 10);
+  return o2 >= 0 && o2 <= 255 && o3 >= 0 && o3 <= 255;
+}
+
 app.use(cors({
   origin(origin, cb) {
-    if (!origin || ALLOWED_ORIGINS.includes(origin) ||
-      /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(origin)) {
+    if (!origin || ALLOWED_ORIGINS.includes(origin) || corsAllowsDevLanOrigin(origin)) {
       return cb(null, true);
     }
     cb(new Error('Not allowed by CORS'));
@@ -431,18 +817,119 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '16kb' }));
 
-/** Public: lets the UI check the typed token before storing it (wrong token → 401 + message). */
-app.post('/api/auth/verify-admin', (req, res) => {
-  if (!ADMIN_TOKEN_ACTIVE) {
-    return res.json({ ok: true, authDisabled: true });
+/**
+ * Public: lets a UI check a typed token before storing it (wrong token → 401 + message).
+ * Validates `HEY_ADMIN_TOKEN`. Body `audience` is ignored (compat). Optional `username` is audit-only.
+ */
+app.post('/api/auth/verify-admin', throttleVerifyAdmin, (req, res) => {
+  const audience = verifyAudienceFromBody(req.body);
+  if (!audienceAuthActive(audience)) {
+    return res.status(503).json({
+      error: 'Admin authentication is not configured on the server',
+      authDisabled: true,
+      code: 'ADMIN_TOKEN_NOT_SET',
+      detail: 'Set HEY_ADMIN_TOKEN on the server and restart.',
+    });
   }
+  const key = `${clientKeyForGuards(req)}|${audience}`;
   const pwd = req.body && typeof req.body.password === 'string' ? req.body.password.trim() : '';
-  const bearer = getBearerToken(req);
+  const bearer = getBearerTokenStrict(req);
   const candidate = pwd || bearer || '';
-  if (!candidate || !timingSafeEqualStrings(ADMIN_TOKEN_RAW, candidate)) {
+  if (!candidate || !candidateMatchesAudience(candidate, audience)) {
+    verifyAdminGuard.recordFailure(key);
     return res.status(401).json({ error: 'Invalid admin token', needsAdminAuth: true });
   }
-  return res.json({ ok: true });
+  verifyAdminGuard.recordSuccess(key);
+  const uname = req.body && typeof req.body.username === 'string' ? req.body.username : '';
+  insertAdminLoginAudit(req, uname);
+  return res.json({ ok: true, audience });
+});
+
+const LOG_TAIL_BYTES_DEFAULT = 384 * 1024;
+const LOG_TAIL_BYTES_MAX = 2 * 1024 * 1024;
+
+/**
+ * Read last `maxBytes` of UTF-8 text; if not from start of file, drop first partial line.
+ * @param {string} logAbsPath
+ * @param {number} maxBytes
+ * @returns {Promise<{ text: string, truncated: boolean, size: number }>}
+ */
+async function readBackendLogTail(logAbsPath, maxBytes) {
+  const st = await fs.promises.stat(logAbsPath);
+  const size = st.size;
+  if (size === 0) {
+    return { text: '', truncated: false, size: 0 };
+  }
+  const readLen = Math.min(maxBytes, size);
+  const start = size - readLen;
+  const fh = await fs.promises.open(logAbsPath, 'r');
+  try {
+    const buf = Buffer.alloc(readLen);
+    const { bytesRead } = await fh.read(buf, 0, readLen, start);
+    let text = buf.subarray(0, bytesRead).toString('utf8');
+    if (start > 0) {
+      const nl = text.indexOf('\n');
+      if (nl !== -1) {
+        text = text.slice(nl + 1);
+      }
+    }
+    return { text, truncated: start > 0, size };
+  } finally {
+    await fh.close();
+  }
+}
+
+/** Admin: tail of persistent backend log file (HEY_LOG_DIR/backend.log). */
+app.get('/api/admin/logs', requireMainAdmin, async (req, res) => {
+  try {
+    const raw = (process.env.HEY_LOG_DIR || '').trim();
+    if (!raw) {
+      return res.json({
+        ok: true,
+        configured: false,
+        message:
+          'HEY_LOG_DIR is not set on the server — logs are not written to a file. '
+          + 'Use docker logs / journalctl on the host, or set HEY_LOG_DIR to enable file logging.',
+        text: '',
+      });
+    }
+
+    const dir = path.resolve(raw);
+    const logFile = path.join(dir, 'backend.log');
+
+    let maxBytes = LOG_TAIL_BYTES_DEFAULT;
+    if (req.query && req.query.maxBytes != null) {
+      const n = parseInt(String(req.query.maxBytes), 10);
+      if (!Number.isNaN(n)) {
+        maxBytes = Math.min(LOG_TAIL_BYTES_MAX, Math.max(4096, n));
+      }
+    }
+
+    try {
+      await fs.promises.access(logFile, fs.constants.R_OK);
+    } catch (_) {
+      return res.json({
+        ok: true,
+        configured: true,
+        empty: true,
+        message: 'Log file does not exist yet (nothing written after deploy, or logging just started).',
+        text: '',
+      });
+    }
+
+    const { text, truncated, size } = await readBackendLogTail(logFile, maxBytes);
+    return res.json({
+      ok: true,
+      configured: true,
+      fileSizeBytes: size,
+      truncated,
+      maxBytes,
+      text,
+    });
+  } catch (err) {
+    console.error('admin/logs read error:', err.message);
+    return res.status(500).json({ error: 'Failed to read log file', detail: String(err.message || err) });
+  }
 });
 
 // === API: Messages ===
@@ -460,7 +947,7 @@ app.get('/api/messages', (req, res) => {
   }
 });
 
-app.put('/api/messages/:id', requireAdmin, (req, res) => {
+app.put('/api/messages/:id', requireMainAdmin, auditMutatingRoute, (req, res) => {
   const { id } = req.params;
   const { text } = req.body;
 
@@ -485,7 +972,7 @@ app.put('/api/messages/:id', requireAdmin, (req, res) => {
   }
 });
 
-app.delete('/api/messages', requireAdmin, (req, res) => {
+app.delete('/api/messages', requireMainAdmin, auditMutatingRoute, (req, res) => {
   const { ids } = req.body;
 
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -514,7 +1001,7 @@ app.get('/api/config', (_req, res) => {
   res.json(config);
 });
 
-app.put('/api/config', requireAdmin, (req, res) => {
+app.put('/api/config', requireMainAdmin, auditMutatingRoute, (req, res) => {
   const updates = req.body;
 
   if (typeof updates !== 'object' || updates === null) {
@@ -639,8 +1126,10 @@ app.put('/api/config', requireAdmin, (req, res) => {
 
   if (updates.TRAINING_INBOX_MAX_FILES !== undefined) {
     const v = Math.round(Number(updates.TRAINING_INBOX_MAX_FILES));
-    if (isNaN(v) || v < 10 || v > 500) {
-      return res.status(400).json({ error: 'TRAINING_INBOX_MAX_FILES must be 10-500' });
+    if (isNaN(v) || v < 10 || v > TRAINING_INBOX_MAX_FILES_CAP) {
+      return res.status(400).json({
+        error: `TRAINING_INBOX_MAX_FILES must be 10-${TRAINING_INBOX_MAX_FILES_CAP}`,
+      });
     }
     config.TRAINING_INBOX_MAX_FILES = v;
   }
@@ -699,7 +1188,7 @@ app.get('/api/custom-head/status', (_req, res) => {
   }
 });
 
-app.post('/api/custom-head/train', requireAdmin, (_req, res) => {
+app.post('/api/custom-head/train', requireMainAdmin, auditMutatingRoute, (_req, res) => {
   const trainPy = path.join(__dirname, 'train_custom_head.py');
   if (!fs.existsSync(trainPy)) {
     return res.status(500).json({ error: 'train_custom_head.py not found' });
@@ -717,9 +1206,11 @@ app.post('/api/custom-head/train', requireAdmin, (_req, res) => {
     stderr += d.toString();
   });
   child.on('error', (err) => {
+    if (res.headersSent) return;
     res.status(500).json({ error: String(err.message || err) });
   });
   child.on('close', (code) => {
+    if (res.headersSent) return;
     const lines = stdout.trim().split('\n').filter(Boolean);
     let summary = null;
     if (lines.length) {
@@ -743,7 +1234,7 @@ app.post('/api/custom-head/train', requireAdmin, (_req, res) => {
   });
 });
 
-app.put('/api/custom-head/clip/:label', requireAdmin, (req, res) => {
+app.put('/api/custom-head/clip/:label', requireDocsAdmin, auditMutatingRoute, (req, res) => {
   const label = req.params.label;
   if (label !== 'bark' && label !== 'not_bark') {
     return res.status(400).json({ error: 'label must be bark or not_bark' });
@@ -864,25 +1355,14 @@ app.get('/api/training/listen', (_req, res) => {
   }
 });
 
-app.get('/api/training/audio-catalog', requireAdmin, (_req, res) => {
+app.get('/api/training/audio-catalog', requireMainAdmin, (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.set('Pragma', 'no-cache');
-    const inboxDir = trainingInbox.getInboxDir(__dirname);
-    const inbox = trainingInbox.listInbox(__dirname).map((row) => {
-      let { rms } = row;
-      if (rms == null && row.clipId) {
-        const { wav: wavPath } = trainingInbox.clipPaths(inboxDir, row.clipId);
-        if (fs.existsSync(wavPath)) {
-          try {
-            rms = computeRms(wavPath);
-          } catch (_) {
-            rms = null;
-          }
-        }
-      }
-      return { ...row, rms: rms != null ? rms : null };
-    });
+    const limit = Math.max(1, parseInt(req.query.limit, 10) || 50);
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const { total: inboxTotal, rows: inboxPage } = trainingInbox.listInbox(__dirname, { limit, offset });
+    const inbox = inboxPage.map((row) => ({ ...row, rms: row.rms != null ? row.rms : null }));
     const micTemp = listWavsInDataSubdir('mic_temp')
       .filter((row) => SAFE_MIC_WAV_RE.test(row.name))
       .filter((row) => row.bytes >= MIN_MIC_CLIP_BYTES);
@@ -891,7 +1371,10 @@ app.get('/api/training/audio-catalog', requireAdmin, (_req, res) => {
       not_bark: listWavsInDataSubdir(path.join('custom_clips', 'not_bark'), { mergeSidecarJson: true }),
     };
     res.json({
-      adminRequired: ADMIN_TOKEN_ACTIVE,
+      adminRequired: MAIN_ADMIN_ACTIVE,
+      inboxTotal,
+      inboxOffset: offset,
+      inboxLimit: limit,
       inbox,
       micTemp,
       custom,
@@ -902,7 +1385,7 @@ app.get('/api/training/audio-catalog', requireAdmin, (_req, res) => {
   }
 });
 
-app.get('/api/training/mic-temp/:filename/audio', requireAdmin, (req, res) => {
+app.get('/api/training/mic-temp/:filename/audio', requireMainAdmin, (req, res) => {
   const fn = path.basename(req.params.filename || '');
   if (!SAFE_MIC_WAV_RE.test(fn)) {
     return res.status(400).json({ error: 'invalid filename' });
@@ -923,11 +1406,12 @@ app.get('/api/training/mic-temp/:filename/audio', requireAdmin, (req, res) => {
     });
   }
   res.setHeader('Content-Type', 'audio/wav');
+  res.setHeader('Content-Length', String(st.size));
   res.setHeader('Cache-Control', 'no-store');
   fs.createReadStream(full).pipe(res);
 });
 
-app.get('/api/training/custom-clips/:label/:filename/audio', requireAdmin, (req, res) => {
+app.get('/api/training/custom-clips/:label/:filename/audio', requireMainAdmin, (req, res) => {
   const label = req.params.label;
   if (label !== 'bark' && label !== 'not_bark') {
     return res.status(400).json({ error: 'label must be bark or not_bark' });
@@ -941,17 +1425,27 @@ app.get('/api/training/custom-clips/:label/:filename/audio', requireAdmin, (req,
   if (!fileResolvedUnder(full, root) || !fs.existsSync(full)) {
     return res.status(404).json({ error: 'not found' });
   }
+  let st;
+  try {
+    st = fs.statSync(full);
+  } catch (_) {
+    return res.status(404).json({ error: 'not found' });
+  }
   res.setHeader('Content-Type', 'audio/wav');
+  res.setHeader('Content-Length', String(st.size));
   res.setHeader('Cache-Control', 'no-store');
   fs.createReadStream(full).pipe(res);
 });
 
-app.get('/api/training/inbox', requireAdmin, (_req, res) => {
+app.get('/api/training/inbox', requireMainAdmin, (req, res) => {
   try {
-    const rows = trainingInbox.listInbox(__dirname);
+    const limit = req.query.limit != null ? Math.max(1, parseInt(req.query.limit, 10) || 100) : null;
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const { total, rows } = trainingInbox.listInbox(__dirname, { limit, offset });
     res.json({
       inboxEnabled: !!config.TRAINING_INBOX_ENABLED,
       maxFiles: config.TRAINING_INBOX_MAX_FILES,
+      total,
       clips: rows,
     });
   } catch (err) {
@@ -960,7 +1454,7 @@ app.get('/api/training/inbox', requireAdmin, (_req, res) => {
   }
 });
 
-app.delete('/api/training/inbox', requireAdmin, (_req, res) => {
+app.delete('/api/training/inbox', requireMainAdmin, auditMutatingRoute, (_req, res) => {
   try {
     const { removedFiles } = trainingInbox.clearEntireInbox(__dirname);
     res.json({ ok: true, removedFiles });
@@ -971,7 +1465,7 @@ app.delete('/api/training/inbox', requireAdmin, (_req, res) => {
 });
 
 /** JSON: RMS from PCM + capturedAt (inbox JSON or custom_clips sidecar). Used by training-listen pasted IDs. */
-app.get('/api/training/inbox/:clipId/wav-meta', requireAdmin, (req, res) => {
+app.get('/api/training/inbox/:clipId/wav-meta', requireMainAdmin, (req, res) => {
   const { clipId } = req.params;
   if (!CLIP_ID_RE.test(clipId)) {
     return res.status(400).json({ error: 'invalid clipId' });
@@ -1004,7 +1498,7 @@ app.get('/api/training/inbox/:clipId/wav-meta', requireAdmin, (req, res) => {
   res.json({ clipId, rms, capturedAt });
 });
 
-app.get('/api/training/inbox/:clipId/audio', requireAdmin, (req, res) => {
+app.get('/api/training/inbox/:clipId/audio', requireMainAdmin, (req, res) => {
   const { clipId } = req.params;
   if (!CLIP_ID_RE.test(clipId)) {
     return res.status(400).json({ error: 'invalid clipId' });
@@ -1013,12 +1507,19 @@ app.get('/api/training/inbox/:clipId/audio', requireAdmin, (req, res) => {
   if (!wav) {
     return res.status(404).json({ error: 'clip not found or expired' });
   }
+  let st;
+  try {
+    st = fs.statSync(wav);
+  } catch (_) {
+    return res.status(404).json({ error: 'clip not found or expired' });
+  }
   res.setHeader('Content-Type', 'audio/wav');
+  res.setHeader('Content-Length', String(st.size));
   res.setHeader('Cache-Control', 'no-store');
   fs.createReadStream(wav).pipe(res);
 });
 
-app.post('/api/training/inbox/:clipId/promote', requireAdmin, (req, res) => {
+app.post('/api/training/inbox/:clipId/promote', requireMainAdmin, auditMutatingRoute, (req, res) => {
   const { clipId } = req.params;
   if (!CLIP_ID_RE.test(clipId)) {
     return res.status(400).json({ error: 'invalid clipId' });
@@ -1034,7 +1535,7 @@ app.post('/api/training/inbox/:clipId/promote', requireAdmin, (req, res) => {
   res.json({ ok: true, saved: out.saved, message: 'Run POST /api/custom-head/train to retrain the head.' });
 });
 
-app.delete('/api/training/inbox/:clipId', requireAdmin, (req, res) => {
+app.delete('/api/training/inbox/:clipId', requireMainAdmin, auditMutatingRoute, (req, res) => {
   const { clipId } = req.params;
   if (!CLIP_ID_RE.test(clipId)) {
     return res.status(400).json({ error: 'invalid clipId' });
@@ -1073,6 +1574,7 @@ app.get('/api/presence', (_req, res) => {
 // === OpenAPI / Swagger UI ===
 const swaggerUi = require('swagger-ui-express');
 const yaml = require('js-yaml');
+
 const openApiPath = path.join(__dirname, 'openapi.yaml');
 let openApiSpec;
 try {
@@ -1092,25 +1594,19 @@ if (openApiSpec && openApiSpec.info) {
   openApiSpec.info.title = siteApiTitle();
 }
 
-app.get('/api/openapi.yaml', (_req, res) => {
+app.get('/api/openapi.yaml', requireDocsAdmin, (_req, res) => {
   res.type('text/yaml; charset=utf-8');
   res.send(yaml.dump(openApiSpec, { lineWidth: -1 }));
 });
 
-/**
- * Swagger’s authorize modal uses a plain text input by default; align it with normal credential
- * fields so password managers (e.g. Bitwarden) can offer fills like `/api/training/listen` does.
- */
-const swaggerUiAuthorizeInputScript = `(function(){var r=document.getElementById("swagger-ui");if(!r)return;function p(){r.querySelectorAll(".dialog-ux input,.modal-ux input,[role=dialog] input").forEach(function(i){if(i.dataset.heySwaggerPm)return;i.dataset.heySwaggerPm="1";i.type="password";i.setAttribute("autocomplete","current-password");i.setAttribute("name","hey-admin-bearer-token");i.setAttribute("autocorrect","off");i.setAttribute("autocapitalize","off");i.setAttribute("spellcheck","false");});}p();new MutationObserver(p).observe(r,{childList:!0,subtree:!0});})();`;
-
 app.use(
   '/api/docs',
+  requireDocsAdmin,
   swaggerUi.serve,
   swaggerUi.setup(openApiSpec, {
     customCss: '.swagger-ui .topbar { display: none }',
     customSiteTitle: siteApiTitle(),
     persistAuthorization: false,
-    customJsStr: swaggerUiAuthorizeInputScript,
   }),
 );
 
@@ -1118,6 +1614,23 @@ app.use(
 if (!HEY_TEST_MODE) {
   const { startWatcher } = require('./log-watcher');
   startWatcher({ getBrandTitle: () => siteHeyLabel() });
+}
+
+if (HEY_TEST_MODE) {
+  app.adminSecurityForTests = {
+    parseBoolEnv,
+    parsePositiveInt,
+    trustProxyExpressValue,
+    configureTrustProxy,
+    createHttpsMiddleware,
+    isPrivateLanIpv4Address,
+    directTcpRemoteAddress,
+    createVerifyAdminGuard,
+    auditMutatingRoute,
+    timingSafeEqualStrings,
+    adminCredentialMatches,
+    shouldBypassDocsAdminForTrustedLan,
+  };
 }
 
 module.exports = app;
