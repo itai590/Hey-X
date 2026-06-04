@@ -39,3 +39,4 @@ backend/data/config.json
 private/
 private
 .tmp-buildx-config/
+.cursor/
