@@ -1160,7 +1160,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       var firstBtn = document.createElement('button');
       firstBtn.type = 'button';
       firstBtn.className = 'load-more-btn page-nav-btn';
-      firstBtn.textContent = 'First';
+      firstBtn.textContent = 'First 1';
 
       var prevBtn = document.createElement('button');
       prevBtn.type = 'button';
@@ -1452,20 +1452,6 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
               panelInbox.appendChild(inboxPagerBottom.root);
             }
 
-            var mic = data.micTemp || [];
-            if (mic.length) {
-              var s2 = section('Mic temp (' + mic.length + ') — data/mic_temp');
-              mic.forEach(function (row, i) {
-                var parts = [
-                  'bytes=' + (row.bytes || 0),
-                  catalogRmsPart(row),
-                  row.mtime ? formatTimeIL(row.mtime) : '',
-                ].filter(Boolean);
-                appendClip(s2.clipContainer, row.name, parts.join(' · '), '/api/training/mic-temp/' + encodeURIComponent(row.name) + '/audio', undefined, i + 1);
-              });
-              panelInbox.appendChild(s2);
-            }
-
             var cb = (data.custom && data.custom.bark) || [];
             barksAllRows = cb;
             barksCurrentPage = 1;
@@ -1521,14 +1507,14 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
             if (countInbox) countInbox.textContent = inboxTotalCount ? ' ' + inboxTotalCount : '';
             if (countBarks) countBarks.textContent = cb.length ? ' ' + cb.length : '';
             if (countNotBarks) countNotBarks.textContent = cn.length ? ' ' + cn.length : '';
-            if (tabsEl && (inboxTotalCount || cb.length || cn.length || mic.length)) tabsEl.style.display = '';
+            if (tabsEl && (inboxTotalCount || cb.length || cn.length)) tabsEl.style.display = '';
 
             if (inboxPagerTop || inboxPagerBottom) {
               updateInboxLoadMoreBtn();
             }
 
-            if (!inboxTotalCount && !mic.length && !cb.length && !cn.length) {
-              status.textContent = 'No WAV files found under training_inbox, mic_temp, or custom_clips.';
+            if (!inboxTotalCount && !cb.length && !cn.length) {
+              status.textContent = 'No WAV files found under training_inbox or custom_clips.';
             }
           } else {
             if (replaceInboxRows || !inboxSection) {

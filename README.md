@@ -309,6 +309,27 @@ docker run --rm \
 
 ## Development
 
+### Frontend-only UI demo
+
+Run the React UI and a Vite-hosted in-memory demo API without starting the backend:
+
+```bash
+cd frontend
+nvm use 24
+npm run start:demo
+```
+
+Open `http://localhost:5173`. Demo mode pre-authenticates the main tab and provides
+messages, presence, settings, backend logs, and the training review page. The
+development-only `HEY_ADMIN_TOKEN` for manually testing login is:
+
+```text
+hey-demo-admin
+```
+
+Demo mutations last until the Vite process restarts. This token is not read from
+the repository root `.env` and must not be used in production.
+
 **Frontend:**
 
 ```bash
