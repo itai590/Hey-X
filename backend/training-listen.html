@@ -110,8 +110,37 @@
     .pagination-controls .page-nav-btn {
       min-width: 2.4rem;
     }
+    .pagination-controls .page-nav-step {
+      min-width: 5.5rem;
+    }
+    .pagination-controls .page-nav-select-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .pagination-controls .page-nav-select {
+      min-width: 4.25rem;
+      padding: 0.45rem 0.55rem;
+    }
     .pagination-controls .page-nav-num:disabled {
       opacity: 0.35;
+    }
+    .inbox-filter-controls {
+      margin: 0.4rem 0 0.2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-muted);
+      font-size: 0.86rem;
+      font-weight: 700;
+    }
+    .inbox-filter-controls select {
+      min-width: 10rem;
+      padding: 0.48rem 0.6rem;
     }
     .training-toolbar {
       margin-bottom: 1rem;
@@ -1110,6 +1139,8 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
     var inboxTotalPages = 0;
     var inboxPagerTop = null;
     var inboxPagerBottom = null;
+    var inboxIsBarkFilter = '';
+    var inboxFilterSelect = null;
 
     // Client-side pagination state for Barks and Not Barks
     var barksAllRows = [];
@@ -1133,7 +1164,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
 
       var prevBtn = document.createElement('button');
       prevBtn.type = 'button';
-      prevBtn.className = 'load-more-btn page-nav-btn page-nav-num';
+      prevBtn.className = 'load-more-btn page-nav-btn page-nav-step';
       prevBtn.title = 'Previous page';
 
       var curLabel = document.createElement('span');
@@ -1142,7 +1173,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
 
       var nextBtn = document.createElement('button');
       nextBtn.type = 'button';
-      nextBtn.className = 'load-more-btn page-nav-btn page-nav-num';
+      nextBtn.className = 'load-more-btn page-nav-btn page-nav-step';
       nextBtn.title = 'Next page';
 
       var lastBtn = document.createElement('button');
@@ -1150,30 +1181,53 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       lastBtn.className = 'load-more-btn page-nav-btn';
       lastBtn.textContent = 'Last';
 
+      var pageSelectLabel = document.createElement('label');
+      pageSelectLabel.className = 'page-nav-select-label';
+      pageSelectLabel.appendChild(document.createTextNode('Page'));
+
+      var pageSelect = document.createElement('select');
+      pageSelect.className = 'page-nav-select';
+      pageSelect.title = 'Go directly to page';
+      pageSelect.setAttribute('aria-label', 'Go directly to page');
+      pageSelectLabel.appendChild(pageSelect);
+
       firstBtn.onclick = function () { onGoToPage(1); };
       prevBtn.onclick = function () { onGoToPage(getPage() - 1); };
       nextBtn.onclick = function () { onGoToPage(getPage() + 1); };
       lastBtn.onclick = function () { onGoToPage(getTotal()); };
+      pageSelect.onchange = function () { onGoToPage(Number(pageSelect.value)); };
 
       wrapper.appendChild(firstBtn);
       wrapper.appendChild(prevBtn);
       wrapper.appendChild(curLabel);
       wrapper.appendChild(nextBtn);
       wrapper.appendChild(lastBtn);
+      wrapper.appendChild(pageSelectLabel);
 
       function update() {
         var total = Math.max(1, getTotal());
         var cur = Math.max(1, Math.min(getPage(), total));
         firstBtn.disabled = cur <= 1;
         prevBtn.disabled = cur <= 1;
-        prevBtn.textContent = cur <= 1 ? '—' : String(cur - 1);
+        prevBtn.textContent = cur <= 1 ? 'Prev' : 'Prev ' + (cur - 1);
         curLabel.textContent = String(cur);
         curLabel.title = 'Page ' + cur + ' / ' + total;
         nextBtn.disabled = cur >= total;
-        nextBtn.textContent = cur >= total ? '—' : String(cur + 1);
+        nextBtn.textContent = cur >= total ? 'Next' : 'Next ' + (cur + 1);
         lastBtn.disabled = cur >= total;
         lastBtn.textContent = total > 1 ? 'Last ' + total : 'Last';
         lastBtn.title = 'Go to page ' + total;
+        if (pageSelect.options.length !== total) {
+          pageSelect.textContent = '';
+          for (var page = 1; page <= total; page += 1) {
+            var option = document.createElement('option');
+            option.value = String(page);
+            option.textContent = String(page);
+            pageSelect.appendChild(option);
+          }
+        }
+        pageSelect.value = String(cur);
+        pageSelect.disabled = total <= 1;
       }
 
       return {
@@ -1184,6 +1238,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
         curLabel: curLabel,
         nextBtn: nextBtn,
         lastBtn: lastBtn,
+        pageSelect: pageSelect,
       };
     }
 
@@ -1253,7 +1308,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
 
     function setPagerDisabled(pager, disabled) {
       if (!pager) return;
-      [pager.firstBtn, pager.prevBtn, pager.nextBtn, pager.lastBtn].forEach(function (btn) {
+      [pager.firstBtn, pager.prevBtn, pager.nextBtn, pager.lastBtn, pager.pageSelect].forEach(function (btn) {
         if (btn) btn.disabled = !!disabled;
       });
     }
@@ -1284,6 +1339,34 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
 
     function createInboxPager() {
       return createPageNavPager(goToInboxPage, function () { return inboxCurrentPage; }, function () { return inboxTotalPages || 1; });
+    }
+
+    function createInboxFilter() {
+      var label = document.createElement('label');
+      label.className = 'inbox-filter-controls';
+      label.appendChild(document.createTextNode('Show'));
+
+      var select = document.createElement('select');
+      select.setAttribute('aria-label', 'Filter inbox clips');
+      [
+        ['', 'All clips'],
+        ['true', 'is_bark=true'],
+        ['false', 'is_bark=false'],
+      ].forEach(function (entry) {
+        var option = document.createElement('option');
+        option.value = entry[0];
+        option.textContent = entry[1];
+        select.appendChild(option);
+      });
+      select.value = inboxIsBarkFilter;
+      select.onchange = function () {
+        inboxIsBarkFilter = select.value;
+        select.disabled = true;
+        loadInboxPage(0, false, true);
+      };
+      label.appendChild(select);
+      inboxFilterSelect = select;
+      return label;
     }
 
     function appendInboxRows(rows, startIndex) {
@@ -1327,6 +1410,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
       }
 
       var url = '/api/training/audio-catalog?limit=' + INBOX_PAGE_SIZE + '&offset=' + offset;
+      if (inboxIsBarkFilter) url += '&is_bark=' + encodeURIComponent(inboxIsBarkFilter);
       fetch(heyApi(url), { headers: authHeaders(), cache: 'no-store' })
         .then(function (r) {
           if (r.status === 401) throw new Error('Unauthorized — open the lock icon and sign in with HEY_ADMIN_TOKEN.');
@@ -1351,6 +1435,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
             inboxSection = null;
             inboxPagerTop = null;
             inboxPagerBottom = null;
+            inboxFilterSelect = null;
             var panelInbox = document.getElementById('panel-inbox');
             var panelBarks = document.getElementById('panel-barks');
             var panelNotBarks = document.getElementById('panel-not-barks');
@@ -1361,6 +1446,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
               inboxLoadedCount = inboxRows.length;
               inboxPagerTop = createInboxPager();
               inboxPagerBottom = createInboxPager();
+              panelInbox.appendChild(createInboxFilter());
               panelInbox.appendChild(inboxPagerTop.root);
               panelInbox.appendChild(inboxSection);
               panelInbox.appendChild(inboxPagerBottom.root);
@@ -1453,6 +1539,9 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
                 inboxSection.clipContainer.innerHTML = '';
               }
               appendInboxRows(inboxRows, (inboxCurrentPage - 1) * INBOX_PAGE_SIZE);
+              if (!inboxRows.length && inboxSection.clipContainer) {
+                inboxSection.clipContainer.textContent = 'No inbox clips match this filter.';
+              }
               inboxLoadedCount = inboxRows.length;
             } else {
               appendInboxRows(inboxRows, inboxLoadedCount);
@@ -1460,6 +1549,9 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
             }
             setLoadMoreLoading(false);
             updateInboxLoadMoreBtn();
+            if (inboxFilterSelect) inboxFilterSelect.disabled = false;
+            var countInbox = document.getElementById('tab-count-inbox');
+            if (countInbox) countInbox.textContent = ' ' + inboxTotalCount;
           }
         })
         .catch(function (e) {
@@ -1469,6 +1561,7 @@ c92bcec4-7c2b-4b46-9787-9a6c1291f26d"></textarea>
             setLoadMoreLoading(false);
             updateInboxLoadMoreBtn();
           }
+          if (inboxFilterSelect) inboxFilterSelect.disabled = false;
         })
         .finally(function () {
           if (isFirstLoad) {

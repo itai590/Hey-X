@@ -87,4 +87,10 @@ describe('training-inbox promote + resolve', () => {
     const again = trainingInbox.clearEntireInbox(root);
     expect(again.removedFiles).toBe(0);
   });
+
+  test('listInbox filters by isBark before pagination', () => {
+    expect(trainingInbox.listInbox(root, { isBark: false }).total).toBe(1);
+    expect(trainingInbox.listInbox(root, { isBark: false }).rows[0].clipId).toBe(clipId);
+    expect(trainingInbox.listInbox(root, { isBark: true }).total).toBe(0);
+  });
 });

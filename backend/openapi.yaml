@@ -233,6 +233,12 @@ paths:
       summary: JSON listing of inbox, mic_temp, and custom clip WAVs
       security:
         - bearerAuth: []
+      parameters:
+        - name: is_bark
+          in: query
+          description: Filter inbox clips by their isBark classification.
+          schema:
+            type: boolean
       responses:
         "200":
           description: Catalog
@@ -297,6 +303,12 @@ paths:
       summary: List training inbox clips with metadata
       security:
         - bearerAuth: []
+      parameters:
+        - name: is_bark
+          in: query
+          description: Filter clips by their isBark classification.
+          schema:
+            type: boolean
       responses:
         "200":
           description: Inbox list

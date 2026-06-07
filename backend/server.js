@@ -1361,7 +1361,8 @@ app.get('/api/training/audio-catalog', requireMainAdmin, (req, res) => {
     res.set('Pragma', 'no-cache');
     const limit = Math.max(1, parseInt(req.query.limit, 10) || 50);
     const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
-    const { total: inboxTotal, rows: inboxPage } = trainingInbox.listInbox(__dirname, { limit, offset });
+    const isBark = req.query.is_bark === 'true' ? true : req.query.is_bark === 'false' ? false : null;
+    const { total: inboxTotal, rows: inboxPage } = trainingInbox.listInbox(__dirname, { limit, offset, isBark });
     const inbox = inboxPage.map((row) => ({ ...row, rms: row.rms != null ? row.rms : null }));
     const micTemp = listWavsInDataSubdir('mic_temp')
       .filter((row) => SAFE_MIC_WAV_RE.test(row.name))
@@ -1441,7 +1442,8 @@ app.get('/api/training/inbox', requireMainAdmin, (req, res) => {
   try {
     const limit = req.query.limit != null ? Math.max(1, parseInt(req.query.limit, 10) || 100) : null;
     const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
-    const { total, rows } = trainingInbox.listInbox(__dirname, { limit, offset });
+    const isBark = req.query.is_bark === 'true' ? true : req.query.is_bark === 'false' ? false : null;
+    const { total, rows } = trainingInbox.listInbox(__dirname, { limit, offset, isBark });
     res.json({
       inboxEnabled: !!config.TRAINING_INBOX_ENABLED,
       maxFiles: config.TRAINING_INBOX_MAX_FILES,

@@ -103,19 +103,26 @@ function inboxJsonSortMs(inboxDir, name) {
 /**
  * List inbox clips with optional pagination. Sorts by clip `capturedAt` when present (else JSON mtime).
  * @param {string} backendRoot
- * @param {{ limit?: number|null, offset?: number }} [opts]
+ * @param {{ limit?: number|null, offset?: number, isBark?: boolean|null }} [opts]
  * @returns {{ total: number, rows: object[] }}
  */
-function listInbox(backendRoot, { limit = null, offset = 0 } = {}) {
+function listInbox(backendRoot, { limit = null, offset = 0, isBark = null } = {}) {
   const inboxDir = getInboxDir(backendRoot);
   if (!fs.existsSync(inboxDir)) return { total: 0, rows: [] };
 
   // Phase 1: filenames + capture-time sort key (one JSON read per clip)
   const names = fs.readdirSync(inboxDir).filter((f) => f.endsWith('.json'));
-  const withSort = names.map((name) => ({
+  let withSort = names.map((name) => ({
     name,
     sortMs: inboxJsonSortMs(inboxDir, name),
   }));
+  if (typeof isBark === 'boolean') {
+    withSort = withSort.filter(({ name }) => {
+      const clipId = name.slice(0, -5);
+      const meta = readMeta(inboxDir, clipId);
+      return meta && meta.isBark === isBark;
+    });
+  }
   withSort.sort((a, b) => b.sortMs - a.sortMs);
 
   const total = withSort.length;
