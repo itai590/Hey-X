@@ -21,9 +21,18 @@ function pruneInbox(inboxDir, maxFiles) {
 
   const withMtime = wavs.map((f) => {
     const full = path.join(inboxDir, f);
-    return { base: f.slice(0, -4), mtime: fs.statSync(full).mtimeMs };
+    const base = f.slice(0, -4);
+    const meta = readMeta(inboxDir, base);
+    return { base, mtime: fs.statSync(full).mtimeMs, isBark: meta ? meta.isBark : null };
   });
-  withMtime.sort((a, b) => a.mtime - b.mtime);
+  // Evict non-bark clips first (oldest first), then bark clips only if still over limit.
+  // This protects bark=true clips from being silently deleted by non-bark accumulation.
+  withMtime.sort((a, b) => {
+    const aIsBark = a.isBark === true ? 1 : 0;
+    const bIsBark = b.isBark === true ? 1 : 0;
+    if (aIsBark !== bIsBark) return aIsBark - bIsBark; // non-bark first
+    return a.mtime - b.mtime; // then oldest first within each group
+  });
   const excess = withMtime.slice(0, wavs.length - maxFiles);
   for (const { base } of excess) {
     try {
