@@ -32,7 +32,7 @@
   },
   "scripts": {
     "start": "vite",
-    "start:demo": "vite --mode demo",
+    "start:dev": "vite --mode dev",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",

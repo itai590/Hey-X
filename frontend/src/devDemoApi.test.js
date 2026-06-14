@@ -11,11 +11,14 @@ describe('renderTrainingListenDemo', () => {
     ].join('');
 
     const html = renderTrainingListenDemo(template, {
-      title: 'Hey Sheldon — WAV review',
+      title: 'Hey X — WAV review',
       timeZone: 'UTC',
     });
 
-    expect(html).toContain('<title>Hey Demo — WAV review</title>');
+    expect(html).toContain('<title>Hey X — WAV review</title>');
+    expect(html).toContain(
+      '<h1 id="training-listen-title">Hey X — WAV review</h1>',
+    );
     expect(html).toContain('<span>UTC</span>');
     expect(html).toContain('const zone = "UTC";');
     expect(html).not.toContain('__DISPLAY_TIME_ZONE_');
