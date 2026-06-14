@@ -43,9 +43,41 @@ DOG_TOP_MIN_BARK_SCORE = float(os.environ.get("YAMNET_DOG_TOP_MIN_BARK", "0.10")
 AMBIGUOUS_MIN_BARK_SCORE = float(os.environ.get("YAMNET_AMBIG_MIN_BARK", "0.06"))
 AMBIGUOUS_TOP_RATIO = float(os.environ.get("YAMNET_AMBIG_TOP_RATIO", "0.50"))
 
+# When one of these is the top YAMNet class it vetoes is_bark regardless of bark_score.
+# These are clearly-human / clearly-non-dog sounds that occasionally score just above the
+# bark threshold due to spectral overlap (e.g. baby cry ↔ yelp, sobbing ↔ whimper).
+NEVER_BARK_TOP_CLASSES = frozenset([
+    "Baby cry, infant cry",
+    "Crying, sobbing",
+    "Laughter",
+    "Narration, monologue",
+    "Singing",
+    "Speech",
+    "Child speech, kid speaking",
+    "Female speech, woman speaking",
+    "Male speech, man speaking",
+    "Conversation",
+    "Shout",
+    "Screaming",
+    "Whispering",
+    "Crowd",
+    "Music",
+])
+
 
 def compute_yamnet_is_bark(labels, bark_score: float, bark_threshold: float) -> tuple[bool, bool]:
     """Returns (yamnet_is_bark, used_relaxed_rule)."""
+    top_class = None
+    if labels:
+        try:
+            top_class = labels[0]["class"]
+        except (KeyError, IndexError, TypeError):
+            pass
+
+    # Hard veto: clearly-non-dog top class suppresses bark regardless of score.
+    if top_class in NEVER_BARK_TOP_CLASSES:
+        return False, False
+
     if bark_score >= bark_threshold:
         return True, False
     if not labels:
