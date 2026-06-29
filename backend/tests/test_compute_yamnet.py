@@ -10,9 +10,22 @@ from classify_bark import compute_yamnet_is_bark
 
 class TestComputeYamnetIsBark(unittest.TestCase):
     def test_bark_score_above_threshold_not_relaxed(self):
-        labels = [{"class": "Speech", "score": 0.9}]
+        labels = [{"class": "Bark", "score": 0.9}]
         ok, relaxed = compute_yamnet_is_bark(labels, 0.35, 0.25)
         self.assertTrue(ok)
+        self.assertFalse(relaxed)
+
+    def test_never_bark_veto_crying(self):
+        # Baby crying should never be flagged as a bark even if bark_score crosses threshold.
+        labels = [{"class": "Crying, sobbing", "score": 0.8}]
+        ok, relaxed = compute_yamnet_is_bark(labels, 0.35, 0.25)
+        self.assertFalse(ok)
+        self.assertFalse(relaxed)
+
+    def test_never_bark_veto_speech(self):
+        labels = [{"class": "Speech", "score": 0.9}]
+        ok, relaxed = compute_yamnet_is_bark(labels, 0.35, 0.25)
+        self.assertFalse(ok)
         self.assertFalse(relaxed)
 
     def test_below_threshold_no_labels(self):

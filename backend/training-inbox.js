@@ -21,9 +21,18 @@ function pruneInbox(inboxDir, maxFiles) {
 
   const withMtime = wavs.map((f) => {
     const full = path.join(inboxDir, f);
-    return { base: f.slice(0, -4), mtime: fs.statSync(full).mtimeMs };
+    const base = f.slice(0, -4);
+    const meta = readMeta(inboxDir, base);
+    return { base, mtime: fs.statSync(full).mtimeMs, isBark: meta ? meta.isBark : null };
   });
-  withMtime.sort((a, b) => a.mtime - b.mtime);
+  // Evict non-bark clips first (oldest first), then bark clips only if still over limit.
+  // This protects bark=true clips from being silently deleted by non-bark accumulation.
+  withMtime.sort((a, b) => {
+    const aIsBark = a.isBark === true ? 1 : 0;
+    const bIsBark = b.isBark === true ? 1 : 0;
+    if (aIsBark !== bIsBark) return aIsBark - bIsBark; // non-bark first
+    return a.mtime - b.mtime; // then oldest first within each group
+  });
   const excess = withMtime.slice(0, wavs.length - maxFiles);
   for (const { base } of excess) {
     try {
@@ -103,19 +112,26 @@ function inboxJsonSortMs(inboxDir, name) {
 /**
  * List inbox clips with optional pagination. Sorts by clip `capturedAt` when present (else JSON mtime).
  * @param {string} backendRoot
- * @param {{ limit?: number|null, offset?: number }} [opts]
+ * @param {{ limit?: number|null, offset?: number, isBark?: boolean|null }} [opts]
  * @returns {{ total: number, rows: object[] }}
  */
-function listInbox(backendRoot, { limit = null, offset = 0 } = {}) {
+function listInbox(backendRoot, { limit = null, offset = 0, isBark = null } = {}) {
   const inboxDir = getInboxDir(backendRoot);
   if (!fs.existsSync(inboxDir)) return { total: 0, rows: [] };
 
   // Phase 1: filenames + capture-time sort key (one JSON read per clip)
   const names = fs.readdirSync(inboxDir).filter((f) => f.endsWith('.json'));
-  const withSort = names.map((name) => ({
+  let withSort = names.map((name) => ({
     name,
     sortMs: inboxJsonSortMs(inboxDir, name),
   }));
+  if (typeof isBark === 'boolean') {
+    withSort = withSort.filter(({ name }) => {
+      const clipId = name.slice(0, -5);
+      const meta = readMeta(inboxDir, clipId);
+      return meta && meta.isBark === isBark;
+    });
+  }
   withSort.sort((a, b) => b.sortMs - a.sortMs);
 
   const total = withSort.length;
