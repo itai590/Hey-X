@@ -13,10 +13,7 @@ function normalizeViteBase(raw) {
 export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const prodBase = normalizeViteBase(process.env.PUBLIC_URL || '/');
-  // If shell/.env sets PUBLIC_URL for Docker, dev server must still use `/` or
-  // React Router basename won't match `http://localhost:5173/` and the tree renders nothing.
-  const base =
-    command === 'serve' && mode === 'development' ? '/' : prodBase;
+  const base = command === 'serve' ? '/' : prodBase;
 
   const demoMode = env.VITE_DEMO_MODE === 'true';
   const plugins = [react()];
