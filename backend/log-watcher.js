@@ -3,18 +3,53 @@ const readline = require('readline');
 const nodemailer = require('nodemailer');
 const { formatDisplayDateTime } = require('./format-display-time');
 
+/** Parse a non-negative numeric env var, falling back to `fallback` when unset/empty/invalid. */
+function envNonNegative(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || String(raw).trim() === '') return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
+}
+
 const LOG_PATH = process.env.NGINX_LOG_PATH || '/var/log/nginx/access.log';
-const COOLDOWN_MS = (Number(process.env.ALERT_COOLDOWN_MINUTES) || 5) * 60 * 1000;
+// Cooldown doubles as the per-IP streak-retention window, so clamp to >=1 min to avoid
+// silently discarding streak state (which would disable streak-gated alerts entirely).
+const COOLDOWN_MS = Math.max(1, envNonNegative('ALERT_COOLDOWN_MINUTES', 30)) * 60 * 1000;
+const MAX_EMAILS_PER_HOUR = envNonNegative('ALERT_MAX_EMAILS_PER_HOUR', 20);
+/** Alert only after more than this many consecutive suspicious hits from the same IP (default 3 → 4th hit). */
+const MIN_HITS_BEFORE_ALERT = envNonNegative('ALERT_MIN_HITS_PER_IP', 3);
+/** How often to email the suppressed-activity digest, in hours (default 24 = daily; clamp >=1). */
+const DIGEST_HOURS = Math.max(1, envNonNegative('ALERT_DIGEST_HOURS', 24));
+
+/** Categories that bypass the streak threshold and alert on the first hit (high-severity). */
+const ALWAYS_ALERT_CATEGORIES = new Set([
+  'Env file leak',
+  'Git leak',
+  'Config probe',
+  'RDP probe',
+]);
 
 /** When true, email on Config probe lines even if nginx returned 404 (scanner noise by default). */
 function alertConfigProbe404() {
   return /^1|true|yes$/i.test(String(process.env.ALERT_LOG_CONFIG_PROBE_404 || '').trim());
 }
 
+/** Comma-separated HTTP status codes to alert on when no named pattern matched (default: none). */
+function httpStatusAlertCodes() {
+  const raw = String(process.env.ALERT_LOG_HTTP_STATUS || '').trim();
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split(',')
+      .map((part) => Number(part.trim()))
+      .filter((code) => Number.isInteger(code) && code >= 400 && code <= 599),
+  );
+}
+
 // ignoreResponseCodes: skip alert for benign statuses (e.g. 404 on /config.json probes).
 const SUSPICIOUS_PATTERNS = [
   { name: 'RDP probe', regex: /mstshash=/i },
-  { name: 'Binary protocol probe', regex: /^"\\x[0-9a-f]{2}/i },
+  { name: 'Binary protocol probe', regex: /\\x[0-9a-f]{2}/i },
   { name: 'WordPress scan', regex: /\/wp-(admin|login|content|includes)/i },
   { name: 'phpMyAdmin scan', regex: /\/phpmyadmin/i },
   { name: 'Env file leak', regex: /\/\.env/i },
@@ -32,18 +67,94 @@ const SUSPICIOUS_PATTERNS = [
 
 const HTTP_STATUS_IN_LINE = /"\s([1-5]\d{2})\s/;
 
-const HTTP_STATUS_SUSPICIOUS = /"\s([4-5]\d{2})\s/;
+const DIGEST_INTERVAL_MS = DIGEST_HOURS * 3600000;
 
-const recentAlerts = new Map();
+const ipState = new Map();
+let emailsSentThisHour = 0;
+let hourWindowStart = Date.now();
+let globalLimitLoggedThisHour = false;
+// Suppressed-match accounting for the hourly digest (reset when the digest is flushed).
+let suppressedThisHour = 0;
+const suppressedByIp = new Map();
+let digestTimer = null;
 
-function isCoolingDown(ip) {
-  const last = recentAlerts.get(ip);
-  if (!last) return false;
-  if (Date.now() - last.time < COOLDOWN_MS) {
-    last.suppressed++;
-    return true;
+function resetHourlyWindowIfNeeded(now = Date.now()) {
+  if (now - hourWindowStart < 3600000) return;
+  hourWindowStart = now;
+  emailsSentThisHour = 0;
+  globalLimitLoggedThisHour = false;
+}
+
+function canSendGlobally() {
+  resetHourlyWindowIfNeeded();
+  if (MAX_EMAILS_PER_HOUR === 0) return true;
+  return emailsSentThisHour < MAX_EMAILS_PER_HOUR;
+}
+
+/** Record any match that was not emailed, for the hourly digest. */
+function recordSuppressed(ip) {
+  suppressedThisHour++;
+  suppressedByIp.set(ip, (suppressedByIp.get(ip) || 0) + 1);
+}
+
+function noteCapReached() {
+  resetHourlyWindowIfNeeded();
+  if (!globalLimitLoggedThisHour) {
+    globalLimitLoggedThisHour = true;
+    console.warn(
+      `[log-watcher] Hourly alert cap (${MAX_EMAILS_PER_HOUR}/h) reached — further low-severity alerts suppressed until next hour`,
+    );
   }
-  return false;
+}
+
+/** Drop per-IP state that has been idle longer than the cooldown window to bound memory. */
+function pruneIpState(now) {
+  for (const [ip, state] of ipState) {
+    if (now - state.lastHit > COOLDOWN_MS) {
+      ipState.delete(ip);
+    }
+  }
+}
+
+/**
+ * Track consecutive suspicious hits per IP and decide what to do with this hit.
+ * Returns a discriminated result:
+ *   { action: 'alert', prevSuppressed, streakHits } — emit an alert
+ *   { action: 'below_threshold', streakHits }       — still building the streak
+ *   { action: 'cooldown', streakHits }              — already alerted recently
+ * When `bypassThreshold` is true (high-severity category), the streak gate is skipped
+ * (alerts on the first hit) but the per-IP cooldown is still honored.
+ */
+function reserveAlertSlot(ip, bypassThreshold = false) {
+  const now = Date.now();
+  pruneIpState(now);
+  let state = ipState.get(ip);
+
+  if (!state || now - state.lastHit > COOLDOWN_MS) {
+    state = { hits: 0, lastHit: now, lastAlert: null, suppressed: 0, streakHits: 0 };
+  }
+
+  state.hits++;
+  state.lastHit = now;
+  state.streakHits = state.hits;
+
+  if (!bypassThreshold && state.hits <= MIN_HITS_BEFORE_ALERT) {
+    ipState.set(ip, state);
+    return { action: 'below_threshold', streakHits: state.streakHits };
+  }
+
+  if (state.lastAlert && now - state.lastAlert < COOLDOWN_MS) {
+    state.suppressed++;
+    ipState.set(ip, state);
+    return { action: 'cooldown', streakHits: state.streakHits };
+  }
+
+  const prevSuppressed = state.suppressed;
+  state.lastAlert = now;
+  state.suppressed = 0;
+  state.hits = 0;
+  ipState.set(ip, state);
+  return { action: 'alert', prevSuppressed, streakHits: state.streakHits };
 }
 
 function buildTransport() {
@@ -90,26 +201,26 @@ function matchPatterns(logLine) {
     matches.push(p.name);
   }
 
-  const statusMatch = logLine.match(HTTP_STATUS_SUSPICIOUS);
-  if (statusMatch) {
-    const code = Number(statusMatch[1]);
-    if (code === 400 || code === 403 || code === 444) {
-      matches.push(`HTTP ${code}`);
-    }
+  if (responseCode !== null && httpStatusAlertCodes().has(responseCode)) {
+    matches.push(`HTTP ${responseCode}`);
   }
 
   return matches;
 }
 
-async function sendAlert(transport, ip, categories, logLine, options = {}) {
+async function sendAlert(transport, ip, categories, logLine, options = {}, alertMeta = {}) {
   const brand =
     typeof options.getBrandTitle === 'function' ? options.getBrandTitle() : 'Hey';
   const timestamp = formatDisplayDateTime(new Date());
 
-  const prev = recentAlerts.get(ip);
-  const suppressedNote = prev && prev.suppressed > 0
-    ? `\n(${prev.suppressed} additional hit(s) from this IP were suppressed since last alert)\n`
-    : '';
+  const streakNote =
+    alertMeta.streakHits > 0
+      ? `\n(${alertMeta.streakHits} consecutive suspicious request(s) from this IP)\n`
+      : '';
+  const suppressedNote =
+    alertMeta.prevSuppressed > 0
+      ? `\n(${alertMeta.prevSuppressed} additional hit(s) from this IP were suppressed since last alert)\n`
+      : '';
 
   const subject = `[${brand}] Suspicious request from ${ip}`;
   const body = [
@@ -118,6 +229,7 @@ async function sendAlert(transport, ip, categories, logLine, options = {}) {
     `Time:       ${timestamp}`,
     `Source IP:  ${ip}`,
     `Category:   ${categories.join(', ')}`,
+    streakNote,
     suppressedNote,
     `Raw log line:`,
     logLine.trim(),
@@ -137,19 +249,37 @@ async function sendAlert(transport, ip, categories, logLine, options = {}) {
         text: body,
       });
       console.log(`[log-watcher] Email sent to ${process.env.ALERT_EMAIL_TO}`);
+      resetHourlyWindowIfNeeded();
+      emailsSentThisHour++;
     } catch (err) {
       console.error('[log-watcher] Failed to send email:', err.message);
     }
   }
-
-  recentAlerts.set(ip, { time: Date.now(), suppressed: 0 });
 }
 
 function startWatcher(options = {}) {
   const transport = buildTransport();
-  console.log(`[log-watcher] Watching ${LOG_PATH} (cooldown: ${COOLDOWN_MS / 1000}s)`);
+  console.log(
+    `[log-watcher] Watching ${LOG_PATH} (min hits: ${MIN_HITS_BEFORE_ALERT + 1}, cooldown: ${COOLDOWN_MS / 1000}s, cap: ${MAX_EMAILS_PER_HOUR}/h, digest: every ${DIGEST_HOURS}h)`,
+  );
   if (alertConfigProbe404()) {
     console.log('[log-watcher] ALERT_LOG_CONFIG_PROBE_404=yes — Config probe emails include HTTP 404');
+  }
+  const statusCodes = httpStatusAlertCodes();
+  if (statusCodes.size > 0) {
+    console.log(
+      `[log-watcher] ALERT_LOG_HTTP_STATUS=${[...statusCodes].join(',')} — standalone HTTP status alerts enabled`,
+    );
+  }
+
+  // Create the hourly digest timer once, even across tail restarts.
+  if (!digestTimer) {
+    digestTimer = setInterval(() => {
+      flushHourlyDigest(transport, options).catch((err) =>
+        console.error('[log-watcher] Unhandled error sending digest:', err.message),
+      );
+    }, DIGEST_INTERVAL_MS);
+    if (typeof digestTimer.unref === 'function') digestTimer.unref();
   }
 
   const tail = spawn('tail', ['--follow=name', '--retry', '-n', '0', LOG_PATH]);
@@ -179,14 +309,117 @@ function startWatcher(options = {}) {
   });
 }
 
+/** Durable audit line for every suspicious match, whether or not it is emailed. */
+function logMatch(ip, categories, severity, action) {
+  console.log(
+    `[log-watcher] MATCH ip=${ip} severity=${severity} action=${action} cat="${categories.join(', ')}"`,
+  );
+}
+
 async function processLine(transport, line, options = {}) {
   const categories = matchPatterns(line);
   if (categories.length === 0) return;
 
   const ip = extractIp(line);
-  if (isCoolingDown(ip)) return;
+  const highSeverity = categories.some((c) => ALWAYS_ALERT_CATEGORIES.has(c));
+  const severity = highSeverity ? 'high' : 'low';
 
-  await sendAlert(transport, ip, categories, line, options);
+  const decision = reserveAlertSlot(ip, highSeverity);
+  // Always record the match; emailing is a throttled escalation on top of the log.
+  if (decision.action !== 'alert') {
+    recordSuppressed(ip);
+    logMatch(ip, categories, severity, `suppressed-${decision.action.replace('_', '-')}`);
+    return;
+  }
+  // High-severity alerts (e.g. credential/secret access) bypass the hourly cap so they
+  // are never dropped behind a wall of low-severity noise. Per-IP cooldown still applies.
+  if (!highSeverity && !canSendGlobally()) {
+    recordSuppressed(ip);
+    noteCapReached();
+    logMatch(ip, categories, severity, 'suppressed-hourly-cap');
+    return;
+  }
+
+  logMatch(ip, categories, severity, 'emailed');
+  await sendAlert(transport, ip, categories, line, options, decision);
 }
 
-module.exports = { startWatcher };
+/**
+ * Send a single summary email of everything suppressed since the last digest, then reset
+ * the counters. Sent only when there is something to report, so it is at most 1 email per
+ * digest window (ALERT_DIGEST_HOURS, default daily).
+ */
+async function flushHourlyDigest(transport, options = {}) {
+  const total = suppressedThisHour;
+  if (total <= 0) return;
+
+  const offenders = [...suppressedByIp.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+  const uniqueIps = suppressedByIp.size;
+
+  suppressedThisHour = 0;
+  suppressedByIp.clear();
+
+  const brand =
+    typeof options.getBrandTitle === 'function' ? options.getBrandTitle() : 'Hey';
+  const timestamp = formatDisplayDateTime(new Date());
+  const periodLabel = DIGEST_HOURS === 24 ? 'last 24h' : `last ${DIGEST_HOURS}h`;
+  const subject = `[${brand}] Suspicious activity digest — ${total} suppressed in ${periodLabel}`;
+  const body = [
+    `Summary of suspicious requests that were detected but not individually emailed.`,
+    ``,
+    `Time:               ${timestamp}`,
+    `Window:             ${periodLabel}`,
+    `Suppressed matches: ${total}`,
+    `Unique source IPs:  ${uniqueIps}`,
+    ``,
+    `Top source IPs:`,
+    ...offenders.map(([ip, count]) => `  ${count.toString().padStart(5)}  ${ip}`),
+    ``,
+    `These were throttled by streak threshold, per-IP cooldown, or the hourly cap.`,
+    `Full detail is in the watcher log (grep "[log-watcher] MATCH").`,
+    ``,
+    `---`,
+    `${brand} Log Watcher`,
+  ].join('\n');
+
+  console.log(`[log-watcher] DIGEST: ${total} suppressed across ${uniqueIps} IP(s)`);
+
+  if (transport) {
+    try {
+      await transport.sendMail({
+        from: process.env.ALERT_EMAIL_FROM || process.env.SMTP_USER,
+        to: process.env.ALERT_EMAIL_TO,
+        subject,
+        text: body,
+      });
+      console.log(`[log-watcher] Digest sent to ${process.env.ALERT_EMAIL_TO}`);
+    } catch (err) {
+      console.error('[log-watcher] Failed to send digest:', err.message);
+    }
+  }
+}
+
+function resetWatcherStateForTests() {
+  ipState.clear();
+  emailsSentThisHour = 0;
+  hourWindowStart = Date.now();
+  globalLimitLoggedThisHour = false;
+  suppressedThisHour = 0;
+  suppressedByIp.clear();
+  if (digestTimer) {
+    clearInterval(digestTimer);
+    digestTimer = null;
+  }
+}
+
+module.exports = {
+  startWatcher,
+  processLine,
+  flushHourlyDigest,
+  matchPatterns,
+  extractIp,
+  reserveAlertSlot,
+  resetWatcherStateForTests,
+};

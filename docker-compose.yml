@@ -1,7 +1,16 @@
+# Shared container stdout/stderr retention (Docker json-file driver). Bounds disk used by
+# `docker logs` for every service: max 5 files * 10m = ~50m per container.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   backend:
     container_name: hey-${DOG_SLUG}-backend
     image: hey-${DOG_SLUG}-backend
+    logging: *default-logging
     build:
       context: backend
       dockerfile: Dockerfile
@@ -39,8 +48,12 @@ services:
       - HEY_REQUIRE_HTTPS_TRUST_LAN=${HEY_REQUIRE_HTTPS_TRUST_LAN:-false}
       - HEY_DOCS_ADMIN_TRUST_LAN=${HEY_DOCS_ADMIN_TRUST_LAN:-false}
       - NGINX_LOG_PATH=/var/log/nginx/access.log
-      - ALERT_COOLDOWN_MINUTES=5 # suspicious-request alert cool down time
-      - ALERT_LOG_CONFIG_PROBE_404=${ALERT_LOG_CONFIG_PROBE_404:-true}
+      - ALERT_COOLDOWN_MINUTES=${ALERT_COOLDOWN_MINUTES:-30} # per-IP alert cooldown after threshold met
+      - ALERT_MIN_HITS_PER_IP=${ALERT_MIN_HITS_PER_IP:-3} # alert only after more than N consecutive hits (4th when 3)
+      - ALERT_MAX_EMAILS_PER_HOUR=${ALERT_MAX_EMAILS_PER_HOUR:-20} # global cap; 0 = unlimited
+      - ALERT_DIGEST_HOURS=${ALERT_DIGEST_HOURS:-24} # suppressed-activity digest cadence in hours (default daily)
+      - ALERT_LOG_HTTP_STATUS=${ALERT_LOG_HTTP_STATUS:-} # e.g. 403,444 — empty disables bare HTTP status alerts
+      - ALERT_LOG_CONFIG_PROBE_404=${ALERT_LOG_CONFIG_PROBE_404:-false} # 404 config probes are scanner noise; high-severity bypass only fires on non-404
       - SMTP_HOST=smtp.gmail.com
       - SMTP_PORT=587
       - SMTP_USER=${SMTP_USER}
@@ -48,12 +61,15 @@ services:
       - ALERT_EMAIL_FROM=${ALERT_EMAIL_FROM}
       - ALERT_EMAIL_TO=${ALERT_EMAIL_TO}
       - HEY_LOG_DIR=/var/log/hey # append logs to persists /var/log/hey/backend.log
+      - HEY_LOG_MAX_BYTES=${HEY_LOG_MAX_BYTES:-10485760} # rotate backend.log past this size (10 MiB)
+      - HEY_LOG_KEEP_FILES=${HEY_LOG_KEEP_FILES:-5} # number of rotated backend.log.N files to keep
       - HEY_UNLINK_MIC_CLIP_AFTER_PROCESS=true # default true: delete clip-*.wav after processing; false: keeps files (watch disk)
       - HEY_CLIP_TMP_DIR=/app/backend/data/mic_temp
 
   health-watch:
     container_name: hey-${DOG_SLUG}-health-watch
     image: hey-${DOG_SLUG}-backend
+    logging: *default-logging
     restart: always
     command: ["npm", "run", "health-watch"]
     volumes:
@@ -82,6 +98,7 @@ services:
         condition: service_healthy
     container_name: hey-${DOG_SLUG}-frontend
     image: hey-${DOG_SLUG}-frontend
+    logging: *default-logging
     build:
       context: frontend
       dockerfile: Dockerfile
@@ -112,12 +129,29 @@ services:
   certbot:
     image: certbot/certbot
     container_name: hey-${DOG_SLUG}-certbot
+    logging: *default-logging
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt
       - /var/lib/letsencrypt:/var/lib/letsencrypt
     entrypoint:
       "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h &
       wait $${!}; done;'"
+
+  # Rotates the nginx access.log file on the shared volume. Uses copytruncate so nginx
+  # keeps writing to the same fd (no cross-container signal needed) and the backend
+  # log-watcher's `tail --follow=name --retry` keeps following across rotations.
+  log-rotate:
+    image: alpine:3.20
+    container_name: hey-${DOG_SLUG}-log-rotate
+    logging: *default-logging
+    restart: always
+    volumes:
+      - nginx-logs:/var/log/nginx
+      - ./ops/logrotate-nginx.conf:/etc/logrotate.d/nginx:ro
+    command:
+      - /bin/sh
+      - -c
+      - "apk add --no-cache logrotate >/dev/null 2>&1 && while :; do logrotate -s /var/log/nginx/.logrotate.status /etc/logrotate.d/nginx; sleep 3600; done"
 
 volumes:
   nginx-logs:
