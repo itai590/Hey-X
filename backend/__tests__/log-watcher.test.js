@@ -57,6 +57,26 @@ describe('log-watcher matchPatterns', () => {
     const line = nginxLogLine({ request: 'GET /config.json HTTP/1.1', status: 200 });
     expect(matchPatterns(line)).toEqual(['Config probe']);
   });
+
+  test.each([
+    ['GET /.env.orig HTTP/1.1', 400],
+    ['GET /.env HTTP/1.1', 404],
+    ['GET /.git/HEAD HTTP/1.1', 404],
+    ['GET /.git/config HTTP/1.1', 403],
+  ])('secret/git probe with failed status %i is scanner noise', (request, status) => {
+    const { matchPatterns } = loadWatcher();
+    expect(matchPatterns(nginxLogLine({ request, status }))).toEqual([]);
+  });
+
+  test.each([
+    ['GET /.env HTTP/1.1'],
+    ['GET /.git/config HTTP/1.1'],
+  ])('secret/git probe with HTTP 200 still matches', (request) => {
+    const { matchPatterns } = loadWatcher();
+    expect(matchPatterns(nginxLogLine({ request, status: 200 }))).toEqual(
+      request.includes('.env') ? ['Env file leak'] : ['Git leak'],
+    );
+  });
 });
 
 describe('log-watcher reserveAlertSlot', () => {
@@ -174,6 +194,19 @@ describe('log-watcher processLine hourly cap', () => {
     expect(transport.sent).toHaveLength(2);
   });
 
+  test('failed env probe does not email', async () => {
+    const watcher = loadWatcher({ ALERT_MIN_HITS_PER_IP: '0' });
+    watcher.resetWatcherStateForTests();
+    const transport = fakeTransport();
+
+    await watcher.processLine(
+      transport,
+      nginxLogLine({ ip: '45.148.10.200', request: 'GET /.env.orig HTTP/1.1', status: 400 }),
+    );
+
+    expect(transport.sent).toHaveLength(0);
+  });
+
   test('high-severity alerts bypass the hourly cap', async () => {
     const watcher = loadWatcher({
       ALERT_MIN_HITS_PER_IP: '0',
@@ -245,10 +278,36 @@ describe('log-watcher flushHourlyDigest', () => {
     expect(transport.sent).toHaveLength(1);
     expect(transport.sent[0].subject).toContain('3 suppressed');
     expect(transport.sent[0].text).toContain('10.0.0.5');
+    expect(transport.sent[0].text).toContain('Response status codes:');
+    expect(transport.sent[0].text).toContain('HTTP 404');
 
     // Nothing left to report → no second digest.
     await watcher.flushHourlyDigest(transport, {});
     expect(transport.sent).toHaveLength(1);
+  });
+
+  test('digest groups suppressed matches by response status code', async () => {
+    const watcher = loadWatcher({ ALERT_MIN_HITS_PER_IP: '3' });
+    watcher.resetWatcherStateForTests();
+    const transport = fakeTransport();
+
+    await watcher.processLine(
+      transport,
+      nginxLogLine({ ip: '10.0.0.1', request: 'GET /wp-admin HTTP/1.1', status: 404 }),
+    );
+    await watcher.processLine(
+      transport,
+      nginxLogLine({ ip: '10.0.0.2', request: 'GET /wp-login HTTP/1.1', status: 404 }),
+    );
+    await watcher.processLine(
+      transport,
+      nginxLogLine({ ip: '10.0.0.3', request: 'GET /phpmyadmin HTTP/1.1', status: 400 }),
+    );
+
+    await watcher.flushHourlyDigest(transport, {});
+    expect(transport.sent).toHaveLength(1);
+    expect(transport.sent[0].text).toContain('      2  HTTP 404');
+    expect(transport.sent[0].text).toContain('      1  HTTP 400');
   });
 
   test('does not send a digest when nothing was suppressed', async () => {

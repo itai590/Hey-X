@@ -46,14 +46,17 @@ function httpStatusAlertCodes() {
   );
 }
 
+// ignoreResponseCodes: skip alert when the probe failed (scanner noise on a healthy deploy).
+const FAILED_PROBE_STATUS = [400, 403, 404];
+
 // ignoreResponseCodes: skip alert for benign statuses (e.g. 404 on /config.json probes).
 const SUSPICIOUS_PATTERNS = [
   { name: 'RDP probe', regex: /mstshash=/i },
   { name: 'Binary protocol probe', regex: /\\x[0-9a-f]{2}/i },
   { name: 'WordPress scan', regex: /\/wp-(admin|login|content|includes)/i },
   { name: 'phpMyAdmin scan', regex: /\/phpmyadmin/i },
-  { name: 'Env file leak', regex: /\/\.env/i },
-  { name: 'Git leak', regex: /\/\.git/i },
+  { name: 'Env file leak', regex: /\/\.env/i, ignoreResponseCodes: FAILED_PROBE_STATUS },
+  { name: 'Git leak', regex: /\/\.git/i, ignoreResponseCodes: FAILED_PROBE_STATUS },
   { name: 'XML-RPC probe', regex: /\/xmlrpc\.php/i },
   { name: 'Spring Actuator scan', regex: /\/actuator/i },
   { name: 'Shell injection', regex: /\/cgi-bin/i },
@@ -76,6 +79,7 @@ let globalLimitLoggedThisHour = false;
 // Suppressed-match accounting for the hourly digest (reset when the digest is flushed).
 let suppressedThisHour = 0;
 const suppressedByIp = new Map();
+const suppressedByStatus = new Map();
 let digestTimer = null;
 
 function resetHourlyWindowIfNeeded(now = Date.now()) {
@@ -92,9 +96,11 @@ function canSendGlobally() {
 }
 
 /** Record any match that was not emailed, for the hourly digest. */
-function recordSuppressed(ip) {
+function recordSuppressed(ip, responseCode = null) {
   suppressedThisHour++;
   suppressedByIp.set(ip, (suppressedByIp.get(ip) || 0) + 1);
+  const statusKey = responseCode !== null ? String(responseCode) : 'unknown';
+  suppressedByStatus.set(statusKey, (suppressedByStatus.get(statusKey) || 0) + 1);
 }
 
 function noteCapReached() {
@@ -178,6 +184,11 @@ function buildTransport() {
 function extractIp(logLine) {
   const match = logLine.match(/^(\S+)/);
   return match ? match[1] : 'unknown';
+}
+
+function extractResponseCode(logLine) {
+  const match = logLine.match(HTTP_STATUS_IN_LINE);
+  return match ? Number(match[1]) : null;
 }
 
 function matchPatterns(logLine) {
@@ -321,20 +332,21 @@ async function processLine(transport, line, options = {}) {
   if (categories.length === 0) return;
 
   const ip = extractIp(line);
+  const responseCode = extractResponseCode(line);
   const highSeverity = categories.some((c) => ALWAYS_ALERT_CATEGORIES.has(c));
   const severity = highSeverity ? 'high' : 'low';
 
   const decision = reserveAlertSlot(ip, highSeverity);
   // Always record the match; emailing is a throttled escalation on top of the log.
   if (decision.action !== 'alert') {
-    recordSuppressed(ip);
+    recordSuppressed(ip, responseCode);
     logMatch(ip, categories, severity, `suppressed-${decision.action.replace('_', '-')}`);
     return;
   }
   // High-severity alerts (e.g. credential/secret access) bypass the hourly cap so they
   // are never dropped behind a wall of low-severity noise. Per-IP cooldown still applies.
   if (!highSeverity && !canSendGlobally()) {
-    recordSuppressed(ip);
+    recordSuppressed(ip, responseCode);
     noteCapReached();
     logMatch(ip, categories, severity, 'suppressed-hourly-cap');
     return;
@@ -357,9 +369,11 @@ async function flushHourlyDigest(transport, options = {}) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10);
   const uniqueIps = suppressedByIp.size;
+  const statusCounts = [...suppressedByStatus.entries()].sort((a, b) => b[1] - a[1]);
 
   suppressedThisHour = 0;
   suppressedByIp.clear();
+  suppressedByStatus.clear();
 
   const brand =
     typeof options.getBrandTitle === 'function' ? options.getBrandTitle() : 'Hey';
@@ -376,6 +390,9 @@ async function flushHourlyDigest(transport, options = {}) {
     ``,
     `Top source IPs:`,
     ...offenders.map(([ip, count]) => `  ${count.toString().padStart(5)}  ${ip}`),
+    ``,
+    `Response status codes:`,
+    ...statusCounts.map(([code, count]) => `  ${count.toString().padStart(5)}  HTTP ${code}`),
     ``,
     `These were throttled by streak threshold, per-IP cooldown, or the hourly cap.`,
     `Full detail is in the watcher log (grep "[log-watcher] MATCH").`,
@@ -408,6 +425,7 @@ function resetWatcherStateForTests() {
   globalLimitLoggedThisHour = false;
   suppressedThisHour = 0;
   suppressedByIp.clear();
+  suppressedByStatus.clear();
   if (digestTimer) {
     clearInterval(digestTimer);
     digestTimer = null;
@@ -420,6 +438,7 @@ module.exports = {
   flushHourlyDigest,
   matchPatterns,
   extractIp,
+  extractResponseCode,
   reserveAlertSlot,
   resetWatcherStateForTests,
 };
