@@ -12,16 +12,13 @@ function envNonNegative(name, fallback) {
 }
 
 const LOG_PATH = process.env.NGINX_LOG_PATH || '/var/log/nginx/access.log';
-// Cooldown doubles as the per-IP streak-retention window, so clamp to >=1 min to avoid
-// silently discarding streak state (which would disable streak-gated alerts entirely).
+// Clamp to >=1 min so idle IP state is not discarded every tick (would defeat cooldown).
 const COOLDOWN_MS = Math.max(1, envNonNegative('ALERT_COOLDOWN_MINUTES', 30)) * 60 * 1000;
 const MAX_EMAILS_PER_HOUR = envNonNegative('ALERT_MAX_EMAILS_PER_HOUR', 20);
-/** Alert only after more than this many consecutive suspicious hits from the same IP (default 3 → 4th hit). */
-const MIN_HITS_BEFORE_ALERT = envNonNegative('ALERT_MIN_HITS_PER_IP', 3);
 /** How often to email the suppressed-activity digest, in hours (default 24 = daily; clamp >=1). */
 const DIGEST_HOURS = Math.max(1, envNonNegative('ALERT_DIGEST_HOURS', 24));
 
-/** Categories that bypass the streak threshold and alert on the first hit (high-severity). */
+/** High-severity categories bypass the hourly email cap (per-IP cooldown still applies). */
 const ALWAYS_ALERT_CATEGORIES = new Set([
   'Env file leak',
   'Git leak',
@@ -29,9 +26,12 @@ const ALWAYS_ALERT_CATEGORIES = new Set([
   'RDP probe',
 ]);
 
-/** When true, email on Config probe lines even if nginx returned 404 (scanner noise by default). */
-function alertConfigProbe404() {
-  return /^1|true|yes$/i.test(String(process.env.ALERT_LOG_CONFIG_PROBE_404 || '').trim());
+/**
+ * HTTP 200 on a suspicious path means the probe succeeded — email immediately.
+ * Rejected probes (400/403/404/etc.) are digest-only scanner noise.
+ */
+function isSuccessfulSuspiciousResponse(responseCode) {
+  return responseCode === 200;
 }
 
 /** Comma-separated HTTP status codes to alert on when no named pattern matched (default: none). */
@@ -46,25 +46,17 @@ function httpStatusAlertCodes() {
   );
 }
 
-// ignoreResponseCodes: skip alert when the probe failed (scanner noise on a healthy deploy).
-const FAILED_PROBE_STATUS = [400, 403, 404];
-
-// ignoreResponseCodes: skip alert for benign statuses (e.g. 404 on /config.json probes).
 const SUSPICIOUS_PATTERNS = [
   { name: 'RDP probe', regex: /mstshash=/i },
   { name: 'Binary protocol probe', regex: /\\x[0-9a-f]{2}/i },
   { name: 'WordPress scan', regex: /\/wp-(admin|login|content|includes)/i },
   { name: 'phpMyAdmin scan', regex: /\/phpmyadmin/i },
-  { name: 'Env file leak', regex: /\/\.env/i, ignoreResponseCodes: FAILED_PROBE_STATUS },
-  { name: 'Git leak', regex: /\/\.git/i, ignoreResponseCodes: FAILED_PROBE_STATUS },
+  { name: 'Env file leak', regex: /\/\.env/i },
+  { name: 'Git leak', regex: /\/\.git/i },
   { name: 'XML-RPC probe', regex: /\/xmlrpc\.php/i },
   { name: 'Spring Actuator scan', regex: /\/actuator/i },
   { name: 'Shell injection', regex: /\/cgi-bin/i },
-  {
-    name: 'Config probe',
-    regex: /\/(config\.json|credentials|\.aws|\.ssh)/i,
-    ignoreResponseCodes: [404],
-  },
+  { name: 'Config probe', regex: /\/(config\.json|credentials|\.aws|\.ssh)/i },
   { name: 'Path traversal', regex: /\.\.\//i },
 ];
 
@@ -123,44 +115,30 @@ function pruneIpState(now) {
 }
 
 /**
- * Track consecutive suspicious hits per IP and decide what to do with this hit.
- * Returns a discriminated result:
- *   { action: 'alert', prevSuppressed, streakHits } — emit an alert
- *   { action: 'below_threshold', streakHits }       — still building the streak
- *   { action: 'cooldown', streakHits }              — already alerted recently
- * When `bypassThreshold` is true (high-severity category), the streak gate is skipped
- * (alerts on the first hit) but the per-IP cooldown is still honored.
+ * Per-IP cooldown gate for HTTP 200 alerts.
+ * Returns:
+ *   { action: 'alert' }    — emit an alert
+ *   { action: 'cooldown' } — already alerted recently (caller records it for the digest)
  */
-function reserveAlertSlot(ip, bypassThreshold = false) {
+function reserveAlertSlot(ip) {
   const now = Date.now();
   pruneIpState(now);
   let state = ipState.get(ip);
 
   if (!state || now - state.lastHit > COOLDOWN_MS) {
-    state = { hits: 0, lastHit: now, lastAlert: null, suppressed: 0, streakHits: 0 };
-  }
-
-  state.hits++;
-  state.lastHit = now;
-  state.streakHits = state.hits;
-
-  if (!bypassThreshold && state.hits <= MIN_HITS_BEFORE_ALERT) {
-    ipState.set(ip, state);
-    return { action: 'below_threshold', streakHits: state.streakHits };
+    state = { lastHit: now, lastAlert: null };
+  } else {
+    state.lastHit = now;
   }
 
   if (state.lastAlert && now - state.lastAlert < COOLDOWN_MS) {
-    state.suppressed++;
     ipState.set(ip, state);
-    return { action: 'cooldown', streakHits: state.streakHits };
+    return { action: 'cooldown' };
   }
 
-  const prevSuppressed = state.suppressed;
   state.lastAlert = now;
-  state.suppressed = 0;
-  state.hits = 0;
   ipState.set(ip, state);
-  return { action: 'alert', prevSuppressed, streakHits: state.streakHits };
+  return { action: 'alert' };
 }
 
 function buildTransport() {
@@ -196,20 +174,8 @@ function matchPatterns(logLine) {
   const statusMatchAll = logLine.match(HTTP_STATUS_IN_LINE);
   const responseCode = statusMatchAll ? Number(statusMatchAll[1]) : null;
 
-  const configProbe404Alerts = alertConfigProbe404();
-
   for (const p of SUSPICIOUS_PATTERNS) {
-    if (!p.regex.test(logLine)) continue;
-    const skipBenignStatus =
-      responseCode !== null &&
-      Array.isArray(p.ignoreResponseCodes) &&
-      p.ignoreResponseCodes.includes(responseCode);
-    const allowConfig404 =
-      p.name === 'Config probe' && responseCode === 404 && configProbe404Alerts;
-    if (skipBenignStatus && !allowConfig404) {
-      continue;
-    }
-    matches.push(p.name);
+    if (p.regex.test(logLine)) matches.push(p.name);
   }
 
   if (responseCode !== null && httpStatusAlertCodes().has(responseCode)) {
@@ -219,19 +185,10 @@ function matchPatterns(logLine) {
   return matches;
 }
 
-async function sendAlert(transport, ip, categories, logLine, options = {}, alertMeta = {}) {
+async function sendAlert(transport, ip, categories, logLine, options = {}) {
   const brand =
     typeof options.getBrandTitle === 'function' ? options.getBrandTitle() : 'Hey';
   const timestamp = formatDisplayDateTime(new Date());
-
-  const streakNote =
-    alertMeta.streakHits > 0
-      ? `\n(${alertMeta.streakHits} consecutive suspicious request(s) from this IP)\n`
-      : '';
-  const suppressedNote =
-    alertMeta.prevSuppressed > 0
-      ? `\n(${alertMeta.prevSuppressed} additional hit(s) from this IP were suppressed since last alert)\n`
-      : '';
 
   const subject = `[${brand}] Suspicious request from ${ip}`;
   const body = [
@@ -240,8 +197,7 @@ async function sendAlert(transport, ip, categories, logLine, options = {}, alert
     `Time:       ${timestamp}`,
     `Source IP:  ${ip}`,
     `Category:   ${categories.join(', ')}`,
-    streakNote,
-    suppressedNote,
+    ``,
     `Raw log line:`,
     logLine.trim(),
     ``,
@@ -271,15 +227,12 @@ async function sendAlert(transport, ip, categories, logLine, options = {}, alert
 function startWatcher(options = {}) {
   const transport = buildTransport();
   console.log(
-    `[log-watcher] Watching ${LOG_PATH} (min hits: ${MIN_HITS_BEFORE_ALERT + 1}, cooldown: ${COOLDOWN_MS / 1000}s, cap: ${MAX_EMAILS_PER_HOUR}/h, digest: every ${DIGEST_HOURS}h)`,
+    `[log-watcher] Watching ${LOG_PATH} (cooldown: ${COOLDOWN_MS / 1000}s, cap: ${MAX_EMAILS_PER_HOUR}/h, digest: every ${DIGEST_HOURS}h; individual alerts: HTTP 200 only)`,
   );
-  if (alertConfigProbe404()) {
-    console.log('[log-watcher] ALERT_LOG_CONFIG_PROBE_404=yes — Config probe emails include HTTP 404');
-  }
   const statusCodes = httpStatusAlertCodes();
   if (statusCodes.size > 0) {
     console.log(
-      `[log-watcher] ALERT_LOG_HTTP_STATUS=${[...statusCodes].join(',')} — standalone HTTP status alerts enabled`,
+      `[log-watcher] ALERT_LOG_HTTP_STATUS=${[...statusCodes].join(',')} — standalone HTTP status matches enabled (always digest-only; codes are 4xx/5xx)`,
     );
   }
 
@@ -336,11 +289,18 @@ async function processLine(transport, line, options = {}) {
   const highSeverity = categories.some((c) => ALWAYS_ALERT_CATEGORIES.has(c));
   const severity = highSeverity ? 'high' : 'low';
 
-  const decision = reserveAlertSlot(ip, highSeverity);
-  // Always record the match; emailing is a throttled escalation on top of the log.
+  // Rejected probes (non-200): digest only — the server already blocked them.
+  if (!isSuccessfulSuspiciousResponse(responseCode)) {
+    recordSuppressed(ip, responseCode);
+    logMatch(ip, categories, severity, 'suppressed-rejected');
+    return;
+  }
+
+  // HTTP 200: probe succeeded — alert immediately (per-IP cooldown still applies).
+  const decision = reserveAlertSlot(ip);
   if (decision.action !== 'alert') {
     recordSuppressed(ip, responseCode);
-    logMatch(ip, categories, severity, `suppressed-${decision.action.replace('_', '-')}`);
+    logMatch(ip, categories, severity, 'suppressed-cooldown');
     return;
   }
   // High-severity alerts (e.g. credential/secret access) bypass the hourly cap so they
@@ -353,7 +313,7 @@ async function processLine(transport, line, options = {}) {
   }
 
   logMatch(ip, categories, severity, 'emailed');
-  await sendAlert(transport, ip, categories, line, options, decision);
+  await sendAlert(transport, ip, categories, line, options);
 }
 
 /**
@@ -394,7 +354,8 @@ async function flushHourlyDigest(transport, options = {}) {
     `Response status codes:`,
     ...statusCounts.map(([code, count]) => `  ${count.toString().padStart(5)}  HTTP ${code}`),
     ``,
-    `These were throttled by streak threshold, per-IP cooldown, or the hourly cap.`,
+    `Rejected probes (non-200) are digest-only; HTTP 200 matches email immediately.`,
+    `Other suppressions: per-IP cooldown or the hourly cap.`,
     `Full detail is in the watcher log (grep "[log-watcher] MATCH").`,
     ``,
     `---`,

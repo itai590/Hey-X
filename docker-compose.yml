@@ -48,12 +48,10 @@ services:
       - HEY_REQUIRE_HTTPS_TRUST_LAN=${HEY_REQUIRE_HTTPS_TRUST_LAN:-false}
       - HEY_DOCS_ADMIN_TRUST_LAN=${HEY_DOCS_ADMIN_TRUST_LAN:-false}
       - NGINX_LOG_PATH=/var/log/nginx/access.log
-      - ALERT_COOLDOWN_MINUTES=${ALERT_COOLDOWN_MINUTES:-30} # per-IP alert cooldown after threshold met
-      - ALERT_MIN_HITS_PER_IP=${ALERT_MIN_HITS_PER_IP:-3} # alert only after more than N consecutive hits (4th when 3)
+      - ALERT_COOLDOWN_MINUTES=${ALERT_COOLDOWN_MINUTES:-30} # per-IP cooldown between HTTP 200 alerts
       - ALERT_MAX_EMAILS_PER_HOUR=${ALERT_MAX_EMAILS_PER_HOUR:-20} # global cap; 0 = unlimited
       - ALERT_DIGEST_HOURS=${ALERT_DIGEST_HOURS:-24} # suppressed-activity digest cadence in hours (default daily)
-      - ALERT_LOG_HTTP_STATUS=${ALERT_LOG_HTTP_STATUS:-} # e.g. 403,444 — empty disables bare HTTP status alerts
-      - ALERT_LOG_CONFIG_PROBE_404=${ALERT_LOG_CONFIG_PROBE_404:-false} # 404 config probes are scanner noise; high-severity bypass only fires on non-404
+      - ALERT_LOG_HTTP_STATUS=${ALERT_LOG_HTTP_STATUS:-} # e.g. 403,444 — bare status matches (always digest-only; codes are 4xx/5xx)
       - SMTP_HOST=smtp.gmail.com
       - SMTP_PORT=587
       - SMTP_USER=${SMTP_USER}
