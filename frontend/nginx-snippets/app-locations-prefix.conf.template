@@ -56,6 +56,7 @@
         rewrite ^.*$ %%PUBLIC_URL%%/index.html break;
     }
 
+    # Keep the primary domain root available for other services instead of redirecting to this app.
     location = / {
-        return 301 %%PUBLIC_URL%%/;
+        return 404;
     }
