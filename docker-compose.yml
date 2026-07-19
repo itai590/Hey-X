@@ -113,6 +113,7 @@ services:
       - DOG_SLUG=${DOG_SLUG}
       - PUBLIC_URL=${PUBLIC_URL:-/}
       - PRIMARY_DOMAIN=${PRIMARY_DOMAIN}
+      - TLS_CERTIFICATE_NAME=${TLS_CERTIFICATE_NAME:-}
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt
       - /var/lib/letsencrypt:/var/lib/letsencrypt

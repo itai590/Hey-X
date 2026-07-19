@@ -23,10 +23,11 @@ write_app_dynamic_conf() {
 write_app_dynamic_conf
 
 PRIMARY_DOMAIN="${PRIMARY_DOMAIN:-}"
+TLS_CERTIFICATE_NAME="${TLS_CERTIFICATE_NAME:-$PRIMARY_DOMAIN}"
 
 PRIMARY_CERT=""
-if [ -n "$PRIMARY_DOMAIN" ]; then
-	PRIMARY_CERT="/etc/letsencrypt/live/${PRIMARY_DOMAIN}/fullchain.pem"
+if [ -n "$TLS_CERTIFICATE_NAME" ]; then
+	PRIMARY_CERT="/etc/letsencrypt/live/${TLS_CERTIFICATE_NAME}/fullchain.pem"
 fi
 
 substitute_ssl_template() {
@@ -39,6 +40,7 @@ substitute_ssl_template() {
 
 	sed -i \
 		-e "s|@PRIMARY_DOMAIN@|${PRIMARY_DOMAIN}|g" \
+		-e "s|@TLS_CERTIFICATE_NAME@|${TLS_CERTIFICATE_NAME}|g" \
 		-e "s|@SSL_SERVER_NAMES@|${SSL_SERVER_NAMES}|g" \
 		"$out"
 }
