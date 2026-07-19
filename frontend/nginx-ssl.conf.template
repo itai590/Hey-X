@@ -22,9 +22,9 @@ server {
     listen 443 ssl;
     server_name @PRIMARY_DOMAIN@ www.@PRIMARY_DOMAIN@;
 
-    ssl_certificate /etc/letsencrypt/live/@PRIMARY_DOMAIN@/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/@PRIMARY_DOMAIN@/privkey.pem;
-    ssl_trusted_certificate /etc/letsencrypt/live/@PRIMARY_DOMAIN@/chain.pem;
+    ssl_certificate /etc/letsencrypt/live/@TLS_CERTIFICATE_NAME@/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/@TLS_CERTIFICATE_NAME@/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/@TLS_CERTIFICATE_NAME@/chain.pem;
 
     ssl_protocols TLSv1.2 TLSv1.3;
     # Mozilla “intermediate” profile (TLS 1.2+) — tighter than legacy HIGH:!MD5
